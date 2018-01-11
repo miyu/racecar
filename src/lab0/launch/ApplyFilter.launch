@@ -1,6 +1,13 @@
 <launch>
 	<!-- Launch an ApplyFilter node and pass any necessary parameters -->
-	<arg name="bag_path" default=None />
-	<arg name="follow_backwards" default=False />
-	<node name="bag_follower" pkg="lab0" type="BagFollower.py" />
+	<arg name="filter_path" default="None" />
+	<arg name="sub_topic" default="None" />
+	<arg name="pub_topic" default="None" />
+	<arg name="fast_convolve" default="False" />
+	<node name="apply_filter" pkg="lab0" type="ApplyFilter.py" output="screen">	
+		<param name="filter_path" value="$( arg filter_path )" />
+		<param name="sub_topic" value="$( arg sub_topic )" />
+		<param name="pub_topic" value="$( arg pub_topic )" />
+		<param name="fast_convolve" value="$( arg fast_convolve )" />
+	</node>
 </launch>
