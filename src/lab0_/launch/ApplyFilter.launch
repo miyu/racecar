@@ -1,0 +1,6 @@
+<launch>
+	<!-- Launch an ApplyFilter node and pass any necessary parameters -->
+	<arg name="bag_path" default=None />
+	<arg name="follow_backwards" default=False />
+	<node name="bag_follower" pkg="lab0" type="BagFollower.py" />
+</launch>
