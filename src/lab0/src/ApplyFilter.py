@@ -33,9 +33,9 @@ class Filter:
 		a = cv_image.transpose(2,0,1)
 		b = self.filter
 		
-    	output_height = a.shape[1] - b.shape[0] + 1
-    	output_width = a.shape[2] - b.shape[1] + 1
-    	output_array = np.zeros((a.shape[0], output_height, output_width))
+        output_height = a.shape[1] - b.shape[0] + 1
+        output_width = a.shape[2] - b.shape[1] + 1
+        output_array = np.zeros((a.shape[0], output_height, output_width))
 		
 		if self.fast_convolve:
 			#fast - scipy convolve
