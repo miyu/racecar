@@ -15,10 +15,13 @@ class Filter:
 		#		http://wiki.ros.org/cv_bridge/Tutorials/ConvertingBetweenROSImagesAndOpenCVImagesPython
 		# Use the 'self' parameter to initialize as necessary
 		
+		print("Subscribing to", sub_topic)
+		print("Publishing to", pub_topic)
+
 		self.pub = rospy.Publisher(pub_topic, Image, queue_size=10)		
-		self.sub = rospy.Subscriber(sub_topic, Image, apply_filter_cb)
+		self.sub = rospy.Subscriber(sub_topic, Image, self.apply_filter_cb)
 		self.bridge = CvBridge()
-		self.filter = numpy.array(list(csv.reader(open(filter_path, "rb"), delimiter=","))).astype("float")
+		self.filter = np.array(list(csv.reader(open(filter_path, "rb"), delimiter=","))).astype("float")
 		self.fast_convolve = fast_convolve
 		
 
@@ -26,51 +29,54 @@ class Filter:
 		# Apply the filter to the incoming image and publish the result
 		# If the image has multiple channels, apply the filter to each channel independent of the other channels
 		try:
-			cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+			cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="rgb8")
 		except CvBridgeError as e:
 			print(e)
-		
-		a = cv_image.transpose(2,0,1)
+
+		print ("original shape: ", cv_image.shape)
+	
+		a = cv_image.transpose(2,0,1) # to color channel, y, x
 		b = self.filter
+		print ("Shape:", a.shape, b.shape)
 		
-        output_height = a.shape[1] - b.shape[0] + 1
-        output_width = a.shape[2] - b.shape[1] + 1
-        output_array = np.zeros((a.shape[0], output_height, output_width))
+		output_height = a.shape[1] - b.shape[0] + 1
+		output_width = a.shape[2] - b.shape[1] + 1
+		output_array = np.zeros((a.shape[0], output_height, output_width), dtype=np.uint8)
 		
 		if self.fast_convolve:
 			#fast - scipy convolve
-    		for channel in range(a.shape[0]):
-    			a_channel = a[channel]
-    			output_array[channel] = signal.convolve(a_channel,np.flipud(np.fliplr(b)), mode='valid')
-    		#print('a: ' + str(a))
-    		#print('b: ' + str(b))
-    		print(output_array)
+			for channel in range(a.shape[0]):
+				a_channel = a[channel]
+				output_array[channel] = signal.convolve(a_channel,np.flipud(np.fliplr(b)), mode='valid')
 		else:
 			#slow - loop
-    		for channel in range(output_array.shape[0]):
-    			for h in range(output_array.shape[1]):
-    				for w in range(output_array.shape[2]):
-    					leftbound = w
-    					upperbound = h
-    					rightbound = w + b.shape[1]
-    					lowerbound = h + b.shape[0]
-    					#print(leftbound, rightbound, upperbound, lowerbound)
-    					#print(a[channel][upperbound:lowerbound])
-    					slice = a[channel, upperbound:lowerbound, leftbound:rightbound]
-    					print(slice.shape)
-    					print(b.shape)
-    					output_array[channel][h][w] = np.sum(np.multiply(slice, b))
-    					
-    		#print('a: ' + str(a))
-    		#print('b: ' + str(b))
-    		print(output_array)
+				for channel in range(output_array.shape[0]):
+					for h in range(output_array.shape[1]):
+						for w in range(output_array.shape[2]):
+							leftbound = w
+							upperbound = h
+							rightbound = w + b.shape[1]
+							lowerbound = h + b.shape[0]
+							#print(leftbound, rightbound, upperbound, lowerbound)
+							#print(a[channel][upperbound:lowerbound])
+							slice = a[channel, upperbound:lowerbound, leftbound:rightbound]
+							#print(slice.shape)
+							#print(b.shape)
+							output_array[channel][h][w] = np.sum(np.multiply(slice, b))
+						
+			#print('a: ' + str(a))
+			#print('b: ' + str(b))
+			#print(output_array)
 		
 		new_cv_image = output_array.transpose(1,2,0)
+		print("Published shape:", new_cv_image.shape)
 		
+		print("Publishing:")
 		try:
-			self.pub.publish(self.bridge.cv2_to_imgmsg(new_cv_image, encoding="passthrough"))
+			self.pub.publish(self.bridge.cv2_to_imgmsg(new_cv_image, encoding="rgb8"))
 		except CvBridgeError as e:
 			print(e)
+		print("DONE!")
 
 		
 if __name__ == '__main__':
@@ -87,7 +93,8 @@ if __name__ == '__main__':
 	pub_topic = rospy.get_param('~pub_topic')
 	fast_convolve = rospy.get_param('~fast_convolve')
 	
-	
+	print(filter_path, sub_topic, pub_topic, fast_convolve)
+
 	# Create a Filter object and pass it the loaded parameters
 	filter = Filter(filter_path, sub_topic, pub_topic, fast_convolve)
 	
