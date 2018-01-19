@@ -23,7 +23,9 @@ class OdometryMotionModel:
       
       # Compute the control from the msg and last_pose
       # YOUR CODE HERE
-      
+      # reference frame pose position [x,y,z]-> starting position of car, z is static (2D motion)
+      # pose orientation [x,y,z,w]. x, y are 0. z^2 + w^2 = 1. 
+      # difference in orientation between last pose and current?
       self.apply_motion_model(self.particles, control)
 
     self.last_pose = pose
@@ -32,6 +34,9 @@ class OdometryMotionModel:
   def apply_motion_model(self, proposal_dist, control):
     # Update the proposal distribution by applying the control to each particle
     # YOUR CODE HERE
+    # pdist has dim MAX_PARTICLES x 3 => Individual particle is 1 x 3.
+    # result should be dim MAX_PARTICLES x 3 => result particle is 1 x 3.
+    # Hence, control should be 1 x 3. => Dot product
     pass
     
 class KinematicMotionModel:
