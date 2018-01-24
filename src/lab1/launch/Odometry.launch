@@ -1,0 +1,8 @@
+<launch>
+
+	<node name="OdoTest1" pkg="lab1" type="MotionModel.py" output="screen">
+
+	</node>
+
+
+</launch>
