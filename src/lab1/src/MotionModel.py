@@ -12,9 +12,9 @@ from threading import Lock
 
 class OdometryMotionModel:
 
-  def __init__(self, particles=np.array([[0, 0, 0]]) , state_lock=None):
+  def __init__(self, particles , state_lock=None):
     self.last_pose = None # The last pose thatwas received
-    self.particles = particles
+    self.particles = particles if particles is not None else np.array([[0.0, 0.0, 0.0]], dtype=float)
     self.sub = rospy.Subscriber("/vesc/odom",Odometry, self.motion_cb )
     if state_lock is None:
       self.state_lock = Lock()
@@ -51,7 +51,7 @@ class OdometryMotionModel:
       
       control = np.array((x2 - x1, y2 - y1, theta2 - theta1))
 
-      print("Control in if ", control)
+      #print("Control in if ", control)
     else:
       x = msg.pose.pose.position.x
       y = msg.pose.pose.position.y
@@ -62,7 +62,7 @@ class OdometryMotionModel:
       w_o = msg.pose.pose.orientation.w
       
       angle = euler_from_quaternion([x_o, y_o, z_o, w_o])
-    
+      '''
       print("x: ",x);
       print("y: ", y);
       print("x_o", x_o)
@@ -70,13 +70,14 @@ class OdometryMotionModel:
       print("z_o", z_o)
       print("w_o", w_o)
       print("delta: ", angle[2]);
+      '''
       pose = np.array([x,y,angle[2]]);
 
       control = pose
 
-      print("Conrtol in else: ", control)
+      #print("Conrtol in else: ", control)
 
-    print("Check")
+    #print("Check")
 
     self.apply_motion_model(self.particles, control)
       
@@ -90,12 +91,11 @@ class OdometryMotionModel:
     # result should be dim MAX_PARTICLES x 3 => result particle is 1 x 3.
     # Hence, control should be 1 x 3. => Dot product
     control = np.reshape(control, (1, 3))
-    print("In apply_motion_model, control is  ", control)
-    print("Proposal dist", proposal_dist)
-    
+    #print("In apply_motion_model, control is  ", control)
+    #print("Proposal dist", proposal_dist)
     
     self.particles = proposal_dist + control
-    print("Particles: " + self.particles)
+    print("Particles: ", self.particles)
     
 class KinematicMotionModel:
 
@@ -139,7 +139,7 @@ class KinematicMotionModel:
     # YOUR CODE HERE
     
     curr_speed = float(msg.state.speed - self.SPEED_TO_ERPM_OFFSET) / float(self.SPEED_TO_ERPM_GAIN)
-    curr_steering_angle = float(self.last_servo_cmd - self.STEERING_TO_SERVO_OFFSET) / float(self.STEERING_TO_SERVO_GAIN) 
+    curr_steering_angle = float(float(self.last_servo_cmd) - float(self.STEERING_TO_SERVO_OFFSET)) / float(self.STEERING_TO_SERVO_GAIN) 
 
     print("Velocity ", curr_speed)
     print("Steering Angle: ", curr_steering_angle) 
@@ -165,9 +165,9 @@ class KinematicMotionModel:
 
 if __name__ == '__main__':
   rospy.init_node('OdoTest1', anonymous=True)
-  #Odo = OdometryMotionModel(None, None)
+  Odo = OdometryMotionModel(None, None)
   print("Enter main")
-  Kin = KinematicMotionModel(None, None)
+  #Kin = KinematicMotionModel(None, None)
   rospy.spin()
   pass
     

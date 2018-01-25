@@ -4,16 +4,17 @@ import numpy as np
 import rospy
 import range_libc
 import time
+from sensor_msgs.msg import LaserScan
 from threading import Lock
 
 THETA_DISCRETIZATION = 112 # Discretization of scanning angle
 INV_SQUASH_FACTOR = 2.2    # Factor for helping the weight distribution to be less peaked
 
-Z_SHORT =   # Weight for short reading
-Z_MAX =     # Weight for max reading
-Z_RAND =    # Weight for random reading
-SIGMA_HIT = # Noise value for hit reading
-Z_HIT =     # Weight for hit reading
+Z_SHORT = None  # Weight for short reading
+Z_MAX = None    # Weight for max reading
+Z_RAND = None   # Weight for random reading
+SIGMA_HIT = None # Noise value for hit reading
+Z_HIT = None    # Weight for hit reading
 
 class SensorModel:
 	
@@ -38,6 +39,8 @@ class SensorModel:
     self.laser_angles = None # The angles of each ray
     self.downsampled_angles = None # The angles of the downsampled rays 
     self.do_resample = False # Set so that outside code can know that it's time to resample
+
+    self.laser_sub = rospy.Subscriber(rospy.get_param("~scan_topic", "/scan"), LaserScan, self.lidar_cb, queue_size=1)
     
   def lidar_cb(self, msg):
     self.state_lock.acquire()
@@ -51,7 +54,9 @@ class SensorModel:
     # Keep efficiency in mind, including by caching certain things that won't change across future iterations of this callback
   
     # YOUR CODE HERE
-    
+
+    print(msg.obs)    
+
     self.apply_sensor_model(self.particles, obs, self.weights)
     self.weights /= np.sum(self.weights)
     
@@ -91,4 +96,7 @@ class SensorModel:
     np.power(weights, INV_SQUASH_FACTOR, weights)
 
 if __name__ == '__main__':
-  pass
+  rospy.init_node('SensorTest1', anonymous=True)
+  print("Enter main")
+  Sensor = SensorModel(None, None, None)
+  rospy.spin()

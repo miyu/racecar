@@ -1,0 +1,8 @@
+<launch>
+
+	<node name="SensorTest1" pkg="lab1" type="SensorModel.py" output="screen">
+	      
+	</node>
+
+
+</launch>
