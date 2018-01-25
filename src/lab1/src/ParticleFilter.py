@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import rospy 
+import rospy
 import numpy as np
 import time
 import utils as Utils
@@ -17,7 +17,7 @@ from ReSample import ReSampler
 from SensorModel import SensorModel
 from MotionModel import OdometryMotionModel, KinematicMotionModel
 
- 
+
 class ParticleFilter():
 
   def __init__(self):
@@ -36,25 +36,25 @@ class ParticleFilter():
 
 
 
-    
+
     # Use the 'static_map' service (launched by MapServer.launch) to get the map
     # Will be used to initialize particles and SensorModel
     # Store map in variable called 'map_msg'
     # YOUR CODE HERE
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
+
+
+
+
+
+
+
+
+
 
     # Globally initialize the particles
     self.initialize_global(map_msg)
-   
+
     # Publish particle filter state
     self.pose_pub      = rospy.Publisher("/pf/viz/inferred_pose", PoseStamped, queue_size = 1) # Publishes the expected pose
     self.particle_pub  = rospy.Publisher("/pf/viz/particles", PoseArray, queue_size = 1) # Publishes a subsample of the particles
@@ -66,7 +66,7 @@ class ParticleFilter():
 
     self.sensor_model = SensorModel(map_msg, self.particles, self.weights, self.state_lock) # An object used for applying sensor model
     self.laser_sub = rospy.Subscriber(rospy.get_param("~scan_topic", "/scan"), LaserScan, self.sensor_model.lidar_cb, queue_size=1)
-    
+
     self.MOTION_MODEL_TYPE = rospy.get_param("~motion_model", "kinematic") # Whether to use the odometry or kinematics based motion model
     if self.MOTION_MODEL_TYPE == "kinematic":
       self.motion_model = KinematicMotionModel(self.particles, self.state_lock) # An object used for applying kinematic motion model
@@ -77,15 +77,15 @@ class ParticleFilter():
     else:
       print "Unrecognized motion model: "+ self.MOTION_MODEL_TYPE
       assert(False)
-    
-    # Use to initialize through rviz. Check clicked_pose_cb for more info    
+
+    # Use to initialize through rviz. Check clicked_pose_cb for more info
     self.pose_sub  = rospy.Subscriber("/initialpose", PoseWithCovarianceStamped, self.clicked_pose_cb, queue_size=1)
 
   # Initialize the particles to cover the map
   def initialize_global(self, map_msg):
     # YOUR CODE HERE
     pass
-    
+
   # Publish a tf between the laser and the map
   # This is necessary in order to visualize the laser scan within the map
   def publish_tf(self,pose):
@@ -97,49 +97,46 @@ class ParticleFilter():
   def expected_pose(self):
   # YOUR CODE HERE
     pass
-    
+
   # Callback for '/initialpose' topic. RVIZ publishes a message to this topic when you specify an initial pose using its GUI
   # Reinitialize your particles and weights according to the received initial pose
   # Remember to apply a reasonable amount of Gaussian noise to each particle's pose
   def clicked_pose_cb(self, msg):
     self.state_lock.acquire()
-    
+
     # YOUR CODE HERE
-    
+
     self.state_lock.release()
-    
+
   # Visualize the current state of the filter
   # (1) Publishes a tf between the map and the laser. Necessary for visualizing the laser scan in the map
   # (2) Publishes the most recent laser measurement. Note that the frame_id of this message should be the child_frame_id of the tf from (1)
   # (3) Publishes a PoseStamped message indicating the expected pose of the car
-  # (4) Publishes a subsample of the particles (use self.MAX_VIZ_PARTICLES). 
+  # (4) Publishes a subsample of the particles (use self.MAX_VIZ_PARTICLES).
   #     Sample so that particles with higher weights are more likely to be sampled.
   def visualize(self):
     self.state_lock.acquire()
-    
+
     # YOUR CODE HERE
-    
+
     self.state_lock.release()
-  
-# Suggested main 
+
+# Suggested main
 if __name__ == '__main__':
   rospy.init_node("particle_filter", anonymous=True) # Initialize the node
   pf = ParticleFilter() # Create the particle filter
-  
+
   while not rospy.is_shutdown(): # Keep going until we kill it
     # Callbacks are running in separate threads
     if pf.sensor_model.do_resample: # Check if the sensor model says it's time to resample
       pf.sensor_model.do_resample = False # Reset so that we don't keep resampling
-      
+
       # Resample
       if pf.RESAMPLE_TYPE == "naiive":
         pf.resampler.resample_naiive()
       elif pf.RESAMPLE_TYPE == "low_variance":
         pf.resampler.resample_low_variance()
       else:
-        print "Unrecognized resampling method: "+ pf.RESAMPLE_TYPE      
-      
+        print "Unrecognized resampling method: "+ pf.RESAMPLE_TYPE
+
       pf.visualize() # Perform visualization
-
-
-
