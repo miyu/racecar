@@ -68,6 +68,7 @@ class SensorModel:
         self.do_resample = True
 
         self.state_lock.release()
+        print(self.precompute_sensor_model(280))
 
     def precompute_sensor_model(self, max_range_px):
         table_width = int(max_range_px) + 1
