@@ -18,6 +18,11 @@ class ReSampler:
     # Use np.random.choice to re-sample 
     # YOUR CODE HERE
     
+    assert len(self.particles) == len(self.weights)
+    M = len(self.particles)
+    self.particles = np.random.choice(self.particles, size=M, replace=False, p=self.weights)
+    self.weights[:][:] = (1.0 / M)
+    
     self.state_lock.release()
   
   def resample_low_variance(self):
