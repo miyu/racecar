@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+import math
 import numpy as np
 import rospy
 import range_libc
@@ -10,96 +10,151 @@ from threading import Lock
 THETA_DISCRETIZATION = 112 # Discretization of scanning angle
 INV_SQUASH_FACTOR = 2.2    # Factor for helping the weight distribution to be less peaked
 
-Z_SHORT = None  # Weight for short reading
-Z_MAX = None    # Weight for max reading
-Z_RAND = None   # Weight for random reading
-SIGMA_HIT = None # Noise value for hit reading
-Z_HIT = None    # Weight for hit reading
+Z_SHORT = 0.25  # Weight for short reading
+Z_MAX = 0.25    # Weight for max reading
+Z_RAND = 0.25   # Weight for random reading
+SIGMA_HIT = 0.2 # Noise value for hit reading
+Z_HIT = 0.25    # Weight for hit reading
+
+LAMBDA_SHORT = 3.0
 
 class SensorModel:
+    def __init__(self, map_msg, particles, weights, state_lock=None):
+        if state_lock is None:
+            self.state_lock = Lock()
+        else:
+            self.state_lock = state_lock
 
-  def __init__(self, map_msg, particles, weights, state_lock=None):
-    if state_lock is None:
-      self.state_lock = Lock()
-    else:
-      self.state_lock = state_lock
+        self.particles = particles
+        self.weights = weights
 
-    # self.particles = particles
-    # self.weights = weights
-    #
-    # self.LASER_RAY_STEP = int(rospy.get_param("~laser_ray_step")) # Step for downsampling laser scans
-    # self.MAX_RANGE_METERS = float(rospy.get_param("~max_range_meters")) # The max range of the laser
-    #
-    # oMap = range_libc.PyOMap(map_msg) # A version of the map that range_libc can understand
-    # max_range_px = int(self.MAX_RANGE_METERS / map_msg.info.resolution) # The max range in pixels of the laser
-    # self.range_method = range_libc.PyCDDTCast(oMap, max_range_px, THETA_DISCRETIZATION) # The range method that will be used for ray casting
-    # self.range_method.set_sensor_model(self.precompute_sensor_model(max_range_px)) # Load the sensor model expressed as a table
-    # self.queries = None
-    # self.ranges = None
-    # self.laser_angles = None # The angles of each ray
-    # self.downsampled_angles = None # The angles of the downsampled rays
-    # self.do_resample = False # Set so that outside code can know that it's time to resample
+        self.LASER_RAY_STEP = int(rospy.get_param("~laser_ray_step")) # Step for downsampling laser scans
+        self.MAX_RANGE_METERS = float(rospy.get_param("~max_range_meters")) # The max range of the laser
 
-    self.laser_sub = rospy.Subscriber(rospy.get_param("~scan_topic", "/scan"), LaserScan, self.lidar_cb, queue_size=1)
+        oMap = range_libc.PyOMap(map_msg) # A version of the map that range_libc can understand
+        max_range_px = int(self.MAX_RANGE_METERS / map_msg.info.resolution) # The max range in pixels of the laser
+        self.range_method = range_libc.PyCDDTCast(oMap, max_range_px, THETA_DISCRETIZATION) # The range method that will be used for ray casting
+        self.range_method.set_sensor_model(self.precompute_sensor_model(max_range_px)) # Load the sensor model expressed as a table
+        self.queries = None
+        self.ranges = None
+        self.laser_angles = None # The angles of each ray
+        self.downsampled_angles = None # The angles of the downsampled rays
+        self.do_resample = False # Set so that outside code can know that it's time to resample
 
-  def lidar_cb(self, msg):
-    self.state_lock.acquire()
+        self.laser_sub = rospy.Subscriber(rospy.get_param("~scan_topic", "/scan"), LaserScan, self.lidar_cb, queue_size=1)
+        #print(self.precompute_sensor_model(7))
 
-    # Compute the observation
-    # obs is a a two element tuple
-    # obs[0] is the downsampled ranges
-    # obs[1] is the downsampled angles
-    # Each element of obs must be a numpy array of type np.float32 (this is a requirement for GPU processing)
-    # Use self.LASER_RAY_STEP as the downsampling step
-    # Keep efficiency in mind, including by caching certain things that won't change across future iterations of this callback
+    def lidar_cb(self, msg):
+        self.state_lock.acquire()
 
-    # YOUR CODE HERE
+        # Compute the observation
+        # obs is a a two element tuple
+        # obs[0] is the downsampled ranges
+        # obs[1] is the downsampled angles
+        # Each element of obs must be a numpy array of type np.float32 (this is a requirement for GPU processing)
+        # Use self.LASER_RAY_STEP as the downsampling step
+        # Keep efficiency in mind, including by caching certain things that won't change across future iterations of this callback
+        obs = [[], []]
+        for i in range(0, len(msg.ranges), self.LASER_RAY_STEP):
+            obs[0].append(msg.ranges[i])
+            obs[1].append(msg.angle_min + i * msg.angle_increment)
 
-    print(msg)
+        obs = [np.array(obs[0], dtype=np.float32), np.array(obs[1], dtype=np.float32)]
 
-    # self.apply_sensor_model(self.particles, obs, self.weights)
-    # self.weights /= np.sum(self.weights)
-    #
-    # self.last_laser = msg
-    # self.do_resample = True
+        self.apply_sensor_model(self.particles, obs, self.weights)
+        self.weights /= np.sum(self.weights)
 
-    self.state_lock.release()
+        self.last_laser = msg
+        self.do_resample = True
 
-  def precompute_sensor_model(self, max_range_px):
+        self.state_lock.release()
 
-    table_width = int(max_range_px) + 1
-    sensor_model_table = np.zeros((table_width,table_width))
+    def precompute_sensor_model(self, max_range_px):
+        table_width = int(max_range_px) + 1
+        sensor_model_table = np.zeros((table_width,table_width))
 
-    # ch 6.2 - have distribution for what a range would be
-    # given map and location.
+        # ch 6.2 - have distribution for what a range would be
+        # given map and location.
 
-    # Populate sensor model table as specified
-    # Note that the row corresponds to the observed measurement and the column corresponds to the expected measurement
-    # YOUR CODE HERE
-    return sensor_model_table
+        # Populate sensor model table as specified
+        # Note that the row corresponds to the observed measurement and the column corresponds to the expected measurement
+        # YOUR CODE HERE
 
-  def apply_sensor_model(self, proposal_dist, obs, weights):
+        assert Z_HIT + Z_SHORT + Z_MAX + Z_RAND == 1.0
 
-    obs_ranges = obs[0]
-    obs_angles = obs[1]
-    num_rays = obs_angles.shape[0]
+        def compute_eng(ztk, ztkstar, varhit):
+            denom1 = math.sqrt(2.0 * np.pi * varhit)
+            numer2 = math.pow(ztk - ztkstar, 2.0)
+            denom2 = varhit
+            return (1.0 / denom1) * np.exp((-0.5) * numer2 / denom2)
 
-    # Only allocate buffers once to avoid slowness
-    if not isinstance(self.queries, np.ndarray):
-      self.queries = np.zeros((proposal_dist.shape[0],3), dtype=np.float32)
-      self.ranges = np.zeros(num_rays*proposal_dist.shape[0], dtype=np.float32)
+        engs = np.zeros((table_width, table_width))
+        for i in range(table_width):
+            for j in range(table_width):
+                engs[i][j] = compute_eng(float(i), float(j), SIGMA_HIT * SIGMA_HIT)
 
-    self.queries[:,:] = proposal_dist[:,:]
+        engs = engs / engs.sum(axis=0, dtype=float)
 
-    self.range_method.calc_range_repeat_angles(self.queries, obs_angles, self.ranges)
+        def compute_p_hit(i, j, max_range_px):
+            return engs[i][j] if 0.0 <= i <= max_range_px else 0.0
 
-    # Evaluate the sensor model on the GPU
-    self.range_method.eval_sensor_model(obs_ranges, self.ranges, weights, num_rays, proposal_dist.shape[0])
+        def compute_p_short(i, j):
+            if i == 0 or j == 0 or not (0 <= i <= j):
+                return 0.0
+            p_short_eng = 1.0 / (1.0 - np.exp(-LAMBDA_SHORT * j))
+            return p_short_eng * LAMBDA_SHORT * np.exp(-LAMBDA_SHORT * i)
 
-    np.power(weights, INV_SQUASH_FACTOR, weights)
+        def compute_p_max(i, max_range_px):
+            return 1 if i == max_range_px else 0.0
+
+        def compute_p_rand(i, max_range_px):
+            return 1.0 / max_range_px if 0 <= i < max_range_px else 0.0
+
+        for i in range(table_width): # observed
+            for j in range(table_width): # expected
+                p_hit = compute_p_hit(i, j, max_range_px)
+                p_short = compute_p_short(i, j)
+                p_max = compute_p_max(i, max_range_px)
+                p_rand = compute_p_rand(i, max_range_px)
+
+                print(i, j, max_range_px, LAMBDA_SHORT, p_hit, p_short, p_max, p_rand)
+
+                assert 0 <= p_hit <= 1
+                assert 0 <= p_rand <= 1
+                assert 0 <= p_short <= 1
+                assert 0 <= p_max <= 1
+
+                sensor_model_table[i][j] = Z_HIT*p_hit + Z_SHORT*p_short + Z_MAX*p_max + Z_RAND*p_rand
+
+        column_sums = sensor_model_table.sum(axis=0)
+        print(column_sums)
+        for j in range(table_width):
+            assert abs(column_sums[j] - 1.0) <= 1E-4
+
+        return sensor_model_table
+
+
+    def apply_sensor_model(self, proposal_dist, obs, weights):
+        obs_ranges = obs[0]
+        obs_angles = obs[1]
+        num_rays = obs_angles.shape[0]
+
+        # Only allocate buffers once to avoid slowness
+        if not isinstance(self.queries, np.ndarray):
+            self.queries = np.zeros((proposal_dist.shape[0],3), dtype=np.float32)
+            self.ranges = np.zeros(num_rays*proposal_dist.shape[0], dtype=np.float32)
+
+        self.queries[:,:] = proposal_dist[:,:]
+
+        self.range_method.calc_range_repeat_angles(self.queries, obs_angles, self.ranges)
+
+        # Evaluate the sensor model on the GPU
+        self.range_method.eval_sensor_model(obs_ranges, self.ranges, weights, num_rays, proposal_dist.shape[0])
+
+        np.power(weights, INV_SQUASH_FACTOR, weights)
 
 if __name__ == '__main__':
-  rospy.init_node('SensorTest1', anonymous=True)
-  print("Enter main")
-  Sensor = SensorModel(None, None, None)
-  rospy.spin()
+    rospy.init_node('SensorTest1', anonymous=True)
+    print("Enter main")
+    Sensor = SensorModel(None, None, None)
+    rospy.spin()
