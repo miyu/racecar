@@ -7,11 +7,14 @@ import time
 from sensor_msgs.msg import LaserScan
 from threading import Lock
 
-from Debug import print_locks
+from Debug import print_locks, print_benchmark
 
 THETA_DISCRETIZATION = 112 # Discretization of scanning angle
-SQUASH_FACTOR_N = 1.5
+SQUASH_FACTOR_N = 2.0 # if squash factor is high, then flatten distribution (more particles win)
+# if squash factor is low, then bigger peaks (few particles win)
 INV_SQUASH_FACTOR = 1 / SQUASH_FACTOR_N    # Factor for helping the weight distribution to be less peaked
+# if INV_SQUASH_FACTOR is really big, then basically one particle wins.
+# else if it's really small, then it flattens the distribution.
 
 Z_HIT = 5 # Weight for hit reading, hit obj properly
 Z_SHORT = 1 # Weight for short reading, something in the way
@@ -75,6 +78,7 @@ class SensorModel:
         print_locks("Entering lock lidar_cb")
         self.state_lock.acquire()
         print_locks("Entered lock lidar_cb")
+        start_time = time.time()
 
         # Compute the observation
         # obs is a a two element tuple
@@ -104,6 +108,7 @@ class SensorModel:
         self.do_resample = True
 
         print_locks("Exiting lock lidar_cb")
+        print_benchmark("lidar_cb", start_time, time.time())
         self.state_lock.release()
         #print(self.precompute_sensor_model(280))
 

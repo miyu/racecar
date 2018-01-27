@@ -22,8 +22,7 @@ from SensorModel import SensorModel
 from MotionModel import OdometryMotionModel, KinematicMotionModel
 
 import random
-from Debug import print_locks
-
+from Debug import print_locks, print_benchmark
 
 class ParticleFilter():
     def __init__(self):
@@ -183,6 +182,7 @@ class ParticleFilter():
         print_locks("Entering lock visualize")
         self.state_lock.acquire()
         print_locks("Entered lock visualize")
+        start_time = time.time()
 
         pose = self.expected_pose()
 
@@ -212,6 +212,7 @@ class ParticleFilter():
         self.particle_pub.publish(particles_msg)
 
         print_locks("Exiting lock visualize")
+        print_benchmark("visualize", start_time, time.time())
         self.state_lock.release()
 
 # Suggested main

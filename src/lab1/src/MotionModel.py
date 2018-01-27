@@ -9,7 +9,8 @@ from nav_msgs.msg import Odometry
 from vesc_msgs.msg import VescStateStamped
 from tf.transformations import euler_from_quaternion
 from threading import Lock
-from Debug import print_locks
+from Debug import print_locks, print_benchmark
+import time
 
 class OdometryMotionModel:
     def __init__(self, particles , state_lock=None):
@@ -28,6 +29,7 @@ class OdometryMotionModel:
         print_locks("Entering lock motion_cb")
         self.state_lock.acquire()
         print_locks("Entered lock motion_cb")
+        start_time = time.time()
 
     	pose = None
     	control = None
@@ -88,6 +90,7 @@ class OdometryMotionModel:
 
     	self.last_pose = pose
         print_locks("Releasing lock motion_cb")
+        print_benchmark("odometry motion_cb", start_time, time.time())
         self.state_lock.release()
 
     def apply_motion_model(self, proposal_dist, control):
@@ -134,6 +137,7 @@ class KinematicMotionModel:
         print_locks("Entering lock motion_cb")
         self.state_lock.acquire()
         print_locks("Entered lock motion_cb")
+        start_time = time.time()
 
         # if no servo info, skip
         if self.last_servo_cmd is None:
@@ -161,6 +165,7 @@ class KinematicMotionModel:
 
         self.apply_motion_model(self.particles, [curr_speed, curr_steering_angle, dt])
         print_locks("Releasing lock motion_cb")
+        print_benchmark("kinematic motion_cb", start_time, time.time())
         self.state_lock.release()
 
     def apply_motion_model(self, proposal_dist, control):
