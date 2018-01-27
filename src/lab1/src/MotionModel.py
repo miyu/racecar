@@ -99,8 +99,7 @@ class OdometryMotionModel:
     	#print("In apply_motion_model, control is  ", control)
     	#print("Proposal dist", proposal_dist)
 
-    	self.particles = np.array(proposal_dist + control + noise, dtype=np.float64)
-    	print("Particles: ", self.particles)
+    	self.particles[:][:] = np.array(proposal_dist + control + noise, dtype=np.float64)
 
 class KinematicMotionModel:
     def __init__(self, particles=None, state_lock=None):
@@ -174,8 +173,6 @@ class KinematicMotionModel:
             dy = (curr_speed) * math.sin(theta)
             beta = math.atan(math.tan(curr_steering_angle) / 2.0)
             dtheta = (curr_speed / 0.33) * math.sin(2.0 * beta) # Length = 0.33 m
-
-            print("!", x, y, theta, dx, dy, dtheta, dt)
 
             self.particles[i] = proposal_dist[i] + np.array([dx * dt, dy * dt, dtheta * dt], dtype=np.float64)
 

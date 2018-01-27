@@ -8,14 +8,14 @@ from sensor_msgs.msg import LaserScan
 from threading import Lock
 
 THETA_DISCRETIZATION = 112 # Discretization of scanning angle
-SQUASH_FACTOR_N = 2.2
+SQUASH_FACTOR_N = 1.5
 INV_SQUASH_FACTOR = 1 / SQUASH_FACTOR_N    # Factor for helping the weight distribution to be less peaked
 
 Z_SHORT = 0.25  # Weight for short reading
 Z_MAX = 0.25    # Weight for max reading
 Z_RAND = 0.25   # Weight for random reading
-SIGMA_HIT = 0.2 # Noise value for hit reading
 Z_HIT = 0.25    # Weight for hit reading
+SIGMA_HIT = 0.2 # Noise value for hit reading
 
 LAMBDA_SHORT = 3.0
 
@@ -77,8 +77,14 @@ class SensorModel:
 
         obs = [np.array(obs[0], dtype=np.float32), np.array(obs[1], dtype=np.float32)]
 
+        prior = np.array(self.weights, dtype=np.float32)
         self.apply_sensor_model(self.particles, obs, self.weights)
         self.weights /= np.sum(self.weights)
+        after = np.array(self.weights, dtype=np.float32)
+
+        print("PRIOR", [x for x in reversed(sorted(prior))][0:20])
+        print("AFTER", [x for x in reversed(sorted(after))][0:20])
+        print("DELTA", [x for x in reversed(sorted(after - prior))][0:20])
 
         self.last_laser = msg
         self.do_resample = True
@@ -173,22 +179,14 @@ class SensorModel:
             self.queries = np.zeros((proposal_dist.shape[0],3), dtype=np.float32)
             self.ranges = np.zeros(num_rays*proposal_dist.shape[0], dtype=np.float32)
 
-        print ("SM_ASM A!")
         self.queries[:,:] = proposal_dist[:,:]
-
-        print ("SM_ASM B!")
-        print("QUERIES: ", self.queries)
-        print("RANGES: ", self.ranges)
 
         self.range_method.calc_range_repeat_angles(self.queries, obs_angles, self.ranges)
 
         # Evaluate the sensor model on the GPU
-        print ("SM_ASM C!")
         self.range_method.eval_sensor_model(obs_ranges, self.ranges, weights, num_rays, proposal_dist.shape[0])
 
-        print ("SM_ASM D!")
         np.power(weights, INV_SQUASH_FACTOR, weights)
-        print ("SM_ASM E!")
 
 if __name__ == '__main__':
     rospy.init_node('SensorTest1', anonymous=True)

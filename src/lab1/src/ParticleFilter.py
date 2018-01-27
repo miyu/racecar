@@ -30,7 +30,7 @@ class ParticleFilter():
 
         self.particle_indices = np.arange(self.MAX_PARTICLES)
         self.particles = np.zeros((self.MAX_PARTICLES,3)) # Numpy matrix of dimension MAX_PARTICLES x 3
-        self.weights = np.ones(self.MAX_PARTICLES) / float(self.MAX_PARTICLES) # Numpy matrix containig weight for each particle
+        self.weights = np.ones(self.MAX_PARTICLES, dtype=np.float64) / float(self.MAX_PARTICLES) # Numpy matrix containig weight for each particle
 
         self.state_lock = Lock() # A lock used to prevent concurrency issues. You do not need to worry about this
 
@@ -68,10 +68,10 @@ class ParticleFilter():
 
         self.MOTION_MODEL_TYPE = rospy.get_param("~motion_model", "kinematic") # Whether to use the odometry or kinematics based motion model
         print("!~!@#@!")
-        if False and self.MOTION_MODEL_TYPE == "kinematic":
+        if self.MOTION_MODEL_TYPE == "kinematic":
             self.motion_model = KinematicMotionModel(self.particles, self.state_lock) # An object used for applying kinematic motion model
             self.motion_sub = rospy.Subscriber(rospy.get_param("~motion_topic", "/vesc/sensors/core"), VescStateStamped, self.motion_model.motion_cb, queue_size=1)
-        elif True or self.MOTION_MODEL_TYPE == "odometry":
+        elif self.MOTION_MODEL_TYPE == "odometry":
             self.motion_model = OdometryMotionModel(self.particles, self.state_lock)# An object used for applying odometry motion model
             self.motion_sub = rospy.Subscriber(rospy.get_param("~motion_topic", "/vesc/odom"), Odometry, self.motion_model.motion_cb, queue_size=1)
         else:
@@ -201,8 +201,6 @@ class ParticleFilter():
         particles_msg.header.frame_id = '/map'
         particles_msg.poses = [make_pose_from_xy_theta(sampled_particles[i]) for i in range(len(sampled_particles))]
         self.particle_pub.publish(particles_msg)
-
-        print("particles message: ", particles_msg)
 
         print("Exiting lock visualize")
         self.state_lock.release()
