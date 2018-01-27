@@ -12,6 +12,7 @@ from copy import deepcopy
 
 from vesc_msgs.msg import VescStateStamped
 from sensor_msgs.msg import LaserScan
+from nav_msgs.msg import Odometry
 from nav_msgs.srv import GetMap
 from geometry_msgs.msg import PoseStamped, PoseArray, PoseWithCovarianceStamped, PointStamped, Pose
 
@@ -67,10 +68,10 @@ class ParticleFilter():
 
         self.MOTION_MODEL_TYPE = rospy.get_param("~motion_model", "kinematic") # Whether to use the odometry or kinematics based motion model
         print("!~!@#@!")
-        if self.MOTION_MODEL_TYPE == "kinematic":
+        if False and self.MOTION_MODEL_TYPE == "kinematic":
             self.motion_model = KinematicMotionModel(self.particles, self.state_lock) # An object used for applying kinematic motion model
             self.motion_sub = rospy.Subscriber(rospy.get_param("~motion_topic", "/vesc/sensors/core"), VescStateStamped, self.motion_model.motion_cb, queue_size=1)
-        elif self.MOTION_MODEL_TYPE == "odometry":
+        elif True or self.MOTION_MODEL_TYPE == "odometry":
             self.motion_model = OdometryMotionModel(self.particles, self.state_lock)# An object used for applying odometry motion model
             self.motion_sub = rospy.Subscriber(rospy.get_param("~motion_topic", "/vesc/odom"), Odometry, self.motion_model.motion_cb, queue_size=1)
         else:
@@ -88,7 +89,7 @@ class ParticleFilter():
         # self.weights = np.ones(self.MAX_PARTICLES) / float(self.MAX_PARTICLES) # Numpy matrix containig weight for each particle
         for i in range(0, self.MAX_PARTICLES):
             while True:
-                ind = random.randint(0, len(map_msg.data))
+                ind = random.randint(0, len(map_msg.data) - 1) #who the hell does an inclsuive end of range? omg
                 if map_msg.data[ind] != -1:
                     grid_x = ind % map_msg.info.width
                     grid_y = ind / map_msg.info.width

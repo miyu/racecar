@@ -8,7 +8,8 @@ from sensor_msgs.msg import LaserScan
 from threading import Lock
 
 THETA_DISCRETIZATION = 112 # Discretization of scanning angle
-INV_SQUASH_FACTOR = 2.2    # Factor for helping the weight distribution to be less peaked
+SQUASH_FACTOR_N = 2.2
+INV_SQUASH_FACTOR = 1 / SQUASH_FACTOR_N    # Factor for helping the weight distribution to be less peaked
 
 Z_SHORT = 0.25  # Weight for short reading
 Z_MAX = 0.25    # Weight for max reading
@@ -70,9 +71,9 @@ class SensorModel:
         # Keep efficiency in mind, including by caching certain things that won't change across future iterations of this callback
         obs = [[], []]
         for i in range(0, len(msg.ranges), self.LASER_RAY_STEP):
-            if not math.isnan(msg.ranges[i]):
-                obs[0].append(msg.ranges[i])
-                obs[1].append(msg.angle_min + i * msg.angle_increment)
+            #if not math.isnan(msg.ranges[i]):
+            obs[0].append(msg.ranges[i])
+            obs[1].append(msg.angle_min + i * msg.angle_increment)
 
         obs = [np.array(obs[0], dtype=np.float32), np.array(obs[1], dtype=np.float32)]
 

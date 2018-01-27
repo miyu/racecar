@@ -13,7 +13,7 @@ from threading import Lock
 class OdometryMotionModel:
     def __init__(self, particles , state_lock=None):
         self.last_pose = None # The last pose thatwas received
-    	self.particles = particles if particles is not None else np.array([[0.0, 0.0, 0.0]], dtype=float)
+    	self.particles = particles if particles is not None else np.array([[0.0, 0.0, 0.0]], dtype=np.float64)
     	self.sub = rospy.Subscriber("/vesc/odom",Odometry, self.motion_cb )
     	if state_lock is None:
             self.state_lock = Lock()
@@ -23,7 +23,7 @@ class OdometryMotionModel:
     def motion_cb(self, msg):
         # # uncomment to no-op
         # return
-        
+
         self.state_lock.acquire()
 
     	pose = None
@@ -51,9 +51,8 @@ class OdometryMotionModel:
             angle = euler_from_quaternion([x_o, y_o, z_o, w_o])
             theta2 = angle[2]
 
-
-            pose = np.array([x2, y2, theta2], dtype=float)
-            control = np.array([x2 - x1, y2 - y1, theta2 - theta1], dtype=float)
+            pose = np.array([x2, y2, theta2], dtype=np.float64)
+            control = np.array([x2 - x1, y2 - y1, theta2 - theta1], dtype=np.float64)
 
             # print("Control in if ", control)
         else:
@@ -76,9 +75,9 @@ class OdometryMotionModel:
             print("w_o", w_o)
             print("delta: ", angle[2]);
             '''
-            pose = np.array([x,y,angle[2]]);
+            pose = np.array([x,y,angle[2]], dtype=np.float64);
 
-            control = np.array([0, 0, 0], dtype=float)
+            control = np.array([0, 0, 0], dtype=np.float64)
 
             #print("Conrtol in else: ", control)
 
@@ -96,18 +95,18 @@ class OdometryMotionModel:
     	# result should be dim MAX_PARTICLES x 3 => result particle is 1 x 3.
     	# Hence, control should be 1 x 3. => Dot product
     	control = np.reshape(control, (1, 3))
-    	noise = np.array([np.random.normal(0, var) for var in [1, 1, 0.1]], dtype=float)
+    	noise = np.array([np.random.normal(0, var) for var in [1, 1, 0.1]], dtype=np.float64)
     	#print("In apply_motion_model, control is  ", control)
     	#print("Proposal dist", proposal_dist)
 
-    	self.particles = proposal_dist + control + noise
+    	self.particles = np.array(proposal_dist + control + noise, dtype=np.float64)
     	print("Particles: ", self.particles)
 
 class KinematicMotionModel:
     def __init__(self, particles=None, state_lock=None):
         self.last_servo_cmd = None # The most recent servo command
         self.last_vesc_stamp = None # The time stamp from the previous vesc state msg
-        self.particles = particles if particles is not None else np.array([[0, 0, 0]], dtype=float)
+        self.particles = particles if particles is not None else np.array([[0, 0, 0]], dtype=np.float64)
         self.SPEED_TO_ERPM_OFFSET = float(rospy.get_param("/vesc/speed_to_erpm_offset")) # Offset conversion param from rpm to speed
         self.SPEED_TO_ERPM_GAIN   = float(rospy.get_param("/vesc/speed_to_erpm_gain"))   # Gain conversion param from rpm to speed
         self.STEERING_TO_SERVO_OFFSET = float(rospy.get_param("/vesc/steering_angle_to_servo_offset")) # Offset conversion param from servo position to steering angle
@@ -167,7 +166,7 @@ class KinematicMotionModel:
         # Update the proposal distribution by applying the control to each particle
         # YOUR CODE HERE
         for i in range(len(proposal_dist)):
-            noise = np.array([np.random.normal(0, var) for var in [0.05, 0.01, 1E-10]], dtype=float)
+            noise = np.array([np.random.normal(0, var) for var in [0.05, 0.01, 1E-10]], dtype=np.float64)
             [curr_speed, curr_steering_angle, dt] = control + noise
 
             [x,y,theta] = proposal_dist[i]
@@ -175,7 +174,11 @@ class KinematicMotionModel:
             dy = (curr_speed) * math.sin(theta)
             beta = math.atan(math.tan(curr_steering_angle) / 2.0)
             dtheta = (curr_speed / 0.33) * math.sin(2.0 * beta) # Length = 0.33 m
-            self.particles[i] = proposal_dist[i] + np.array([dx, dy, dtheta], dtype=float) * dt + noise
+
+            print("!", x, y, theta, dx, dy, dtheta, dt)
+
+            self.particles[i] = proposal_dist[i] + np.array([dx * dt, dy * dt, dtheta * dt], dtype=np.float64)
+
             #print("DELTA: ", np.array([dx, dy, dtheta], dtype=float) * dt)
             #print("  RES: ", self.particles[i])
 
