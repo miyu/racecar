@@ -68,10 +68,10 @@ class ParticleFilter():
 
         self.MOTION_MODEL_TYPE = rospy.get_param("~motion_model", "kinematic") # Whether to use the odometry or kinematics based motion model
         print("!~!@#@!")
-        if False and self.MOTION_MODEL_TYPE == "kinematic":
+        if self.MOTION_MODEL_TYPE == "kinematic":
             self.motion_model = KinematicMotionModel(self.particles, self.state_lock) # An object used for applying kinematic motion model
             self.motion_sub = rospy.Subscriber(rospy.get_param("~motion_topic", "/vesc/sensors/core"), VescStateStamped, self.motion_model.motion_cb, queue_size=1)
-        elif True or self.MOTION_MODEL_TYPE == "odometry":
+        elif self.MOTION_MODEL_TYPE == "odometry":
             self.motion_model = OdometryMotionModel(self.particles, self.state_lock)# An object used for applying odometry motion model
             self.motion_sub = rospy.Subscriber(rospy.get_param("~motion_topic", "/vesc/odom"), Odometry, self.motion_model.motion_cb, queue_size=1)
         else:
