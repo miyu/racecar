@@ -11,10 +11,14 @@ THETA_DISCRETIZATION = 112 # Discretization of scanning angle
 SQUASH_FACTOR_N = 1.5
 INV_SQUASH_FACTOR = 1 / SQUASH_FACTOR_N    # Factor for helping the weight distribution to be less peaked
 
-Z_SHORT = 0.25  # Weight for short reading
-Z_MAX = 0.25    # Weight for max reading
-Z_RAND = 0.25   # Weight for random reading
-Z_HIT = 0.25    # Weight for hit reading
+# Z_SHORT = 0.25  # Weight for short reading, something in the way
+# Z_MAX = 0.25    # Weight for max reading, out of range
+# Z_RAND = 0.25   # Weight for random reading, random noise
+# Z_HIT = 0.25    # Weight for hit reading, hit obj properly
+Z_SHORT = 0.1  # Weight for short reading, something in the way
+Z_MAX = 0.1    # Weight for max reading, out of range
+Z_RAND = 0.1   # Weight for random reading, random noise
+Z_HIT = 0.7    # Weight for hit reading, hit obj properly
 SIGMA_HIT = 0.2 # Noise value for hit reading
 
 LAMBDA_SHORT = 3.0
@@ -104,7 +108,7 @@ class SensorModel:
         # Note that the row corresponds to the observed measurement and the column corresponds to the expected measurement
         # YOUR CODE HERE
 
-        assert Z_HIT + Z_SHORT + Z_MAX + Z_RAND == 1.0
+        assert abs((Z_HIT + Z_SHORT + Z_MAX + Z_RAND) - 1.0) < 1E-4
 
         def compute_eng(ztk, ztkstar, varhit):
             denom1 = math.sqrt(2.0 * np.pi * varhit)

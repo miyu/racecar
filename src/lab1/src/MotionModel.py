@@ -165,7 +165,7 @@ class KinematicMotionModel:
         # Update the proposal distribution by applying the control to each particle
         # YOUR CODE HERE
         for i in range(len(proposal_dist)):
-            noise = np.array([np.random.normal(0, var) for var in [0.05, 0.01, 1E-10]], dtype=np.float64)
+            noise = np.array([np.random.normal(0, var) for var in [0.1, 0.3, 1E-10]], dtype=np.float64)
             [curr_speed, curr_steering_angle, dt] = control + noise
 
             [x,y,theta] = proposal_dist[i]
