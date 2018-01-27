@@ -22,9 +22,16 @@ class ReSampler:
 
     assert len(self.particles) == len(self.weights)
     M = len(self.particles)
+
+    print("RESAMLING WEIGHTS: ")
+    best_weight_indices = [x for x in reversed(sorted(range(M), key=lambda i: self.weights[i]))][0:20]
+    for i in best_weight_indices:
+        print(self.weights[i], ": ", self.particles[i][:])
+
     self.particle_indices = np.random.choice(M, size=M, replace=True, p=self.weights)
-    self.particles = self.particles[self.particle_indices][:]
-    self.weights[:][:] = (1.0 / M)
+    self.particles[:][:] = self.particles[self.particle_indices][:]
+    print("Post-resmaple particle shape", self.particles.shape)
+    self.weights[:] = (1.0 / M)
 
     print("Exiting lock resample_naiive")
     self.state_lock.release()

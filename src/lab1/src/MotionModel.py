@@ -95,12 +95,11 @@ class OdometryMotionModel:
     	# result should be dim MAX_PARTICLES x 3 => result particle is 1 x 3.
     	# Hence, control should be 1 x 3. => Dot product
     	control = np.reshape(control, (1, 3))
-    	noise = np.array([np.random.normal(0, var) for var in [1, 1, 0.1]], dtype=np.float64)
+    	noise = np.array([np.random.normal(0, var) for var in [0.01, 0.01, 0.05]], dtype=np.float64)
     	#print("In apply_motion_model, control is  ", control)
     	#print("Proposal dist", proposal_dist)
 
-    	self.particles = np.array(proposal_dist + control + noise, dtype=np.float64)
-    	print("Particles: ", self.particles)
+    	self.particles[:][:] = np.array(proposal_dist + control + noise, dtype=np.float64)
 
 class KinematicMotionModel:
     def __init__(self, particles=None, state_lock=None):
@@ -166,16 +165,14 @@ class KinematicMotionModel:
         # Update the proposal distribution by applying the control to each particle
         # YOUR CODE HERE
         for i in range(len(proposal_dist)):
-            noise = np.array([np.random.normal(0, var) for var in [0.05, 0.01, 1E-10]], dtype=np.float64)
+            noise = np.array([np.random.normal(0, var) for var in [0.1, 0.3, 1E-10]], dtype=np.float64)
             [curr_speed, curr_steering_angle, dt] = control + noise
 
             [x,y,theta] = proposal_dist[i]
-            dx = (curr_speed) * math.cos(theta)
+            dx = (curr_speed) * math.cos(theta) # added - shit was flipped
             dy = (curr_speed) * math.sin(theta)
             beta = math.atan(math.tan(curr_steering_angle) / 2.0)
             dtheta = (curr_speed / 0.33) * math.sin(2.0 * beta) # Length = 0.33 m
-
-            print("!", x, y, theta, dx, dy, dtheta, dt)
 
             self.particles[i] = proposal_dist[i] + np.array([dx * dt, dy * dt, dtheta * dt], dtype=np.float64)
 
