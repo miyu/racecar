@@ -9,6 +9,7 @@ from nav_msgs.msg import Odometry
 from vesc_msgs.msg import VescStateStamped
 from tf.transformations import euler_from_quaternion
 from threading import Lock
+from Debug import print_locks
 
 class OdometryMotionModel:
     def __init__(self, particles , state_lock=None):
@@ -24,12 +25,13 @@ class OdometryMotionModel:
         # # uncomment to no-op
         # return
 
+        print_locks("Entering lock motion_cb")
         self.state_lock.acquire()
+        print_locks("Entered lock motion_cb")
 
     	pose = None
     	control = None
     	if isinstance(self.last_pose, np.ndarray):
-            print("A!")
             # Compute the control from the msg and last_pose
             # YOUR CODE HERE
             # reference frame pose position [x,y,z]-> starting position of car, z is static (2D motion)
@@ -56,7 +58,6 @@ class OdometryMotionModel:
 
             # print("Control in if ", control)
         else:
-            print("B!")
             x = msg.pose.pose.position.x
             y = msg.pose.pose.position.y
 
@@ -81,12 +82,13 @@ class OdometryMotionModel:
 
             #print("Conrtol in else: ", control)
 
-	#print("Check")
+        #print("Check")
 
-	self.apply_motion_model(self.particles, control)
+    	self.apply_motion_model(self.particles, control)
 
-	self.last_pose = pose
-	self.state_lock.release()
+    	self.last_pose = pose
+        print_locks("Releasing lock motion_cb")
+        self.state_lock.release()
 
     def apply_motion_model(self, proposal_dist, control):
     	# Update the proposal distribution by applying the control to each particle
@@ -129,9 +131,9 @@ class KinematicMotionModel:
         # # uncomment to no-op
         # return
 
-        print("Entering lock motion_cb")
+        print_locks("Entering lock motion_cb")
         self.state_lock.acquire()
-        print("Entered lock motion_cb")
+        print_locks("Entered lock motion_cb")
 
         # if no servo info, skip
         if self.last_servo_cmd is None:
@@ -153,12 +155,12 @@ class KinematicMotionModel:
         curr_speed = float(float(msg.state.speed) - float(self.SPEED_TO_ERPM_OFFSET)) / float(self.SPEED_TO_ERPM_GAIN)
         curr_steering_angle = float(float(self.last_servo_cmd) - float(self.STEERING_TO_SERVO_OFFSET)) / float(self.STEERING_TO_SERVO_GAIN)
 
-        print("Velocity ", curr_speed)
-        print("Steering Angle: ", curr_steering_angle, " -- ", self.last_servo_cmd, " -- ", self.STEERING_TO_SERVO_OFFSET)
-        print("Delta Time: ", dt)
+        # print("Velocity ", curr_speed)
+        # print("Steering Angle: ", curr_steering_angle, " -- ", self.last_servo_cmd, " -- ", self.STEERING_TO_SERVO_OFFSET)
+        # print("Delta Time: ", dt)
 
         self.apply_motion_model(self.particles, [curr_speed, curr_steering_angle, dt])
-        print("Releasing lock motion_cb")
+        print_locks("Releasing lock motion_cb")
         self.state_lock.release()
 
     def apply_motion_model(self, proposal_dist, control):

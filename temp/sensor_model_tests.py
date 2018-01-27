@@ -2,16 +2,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 
-# Z_SHORT = 0.25  # Weight for short reading
-# Z_MAX = 0.25    # Weight for max reading
-# Z_RAND = 0.25   # Weight for random reading
-# SIGMA_HIT = 0.2 # Noise value for hit reading
-# Z_HIT = 0.25    # Weight for hit reading
+THETA_DISCRETIZATION = 112 # Discretization of scanning angle
+SQUASH_FACTOR_N = 1.5
+INV_SQUASH_FACTOR = 1 / SQUASH_FACTOR_N    # Factor for helping the weight distribution to be less peaked
 
-Z_HIT = 4
-Z_SHORT = 3
-Z_MAX = 0.1
-Z_RAND = 2
+Z_HIT = 5 # Weight for hit reading, hit obj properly
+Z_SHORT = 1 # Weight for short reading, something in the way
+Z_MAX = 0.05 # Weight for max reading, out of range
+Z_RAND = 2 # Weight for random reading, random noise
 
 Z_NORM = float(Z_HIT + Z_SHORT + Z_MAX + Z_RAND)
 Z_HIT /= Z_NORM
@@ -19,19 +17,6 @@ Z_SHORT /= Z_NORM
 Z_MAX /= Z_NORM
 Z_RAND /= Z_NORM
 
-
-THETA_DISCRETIZATION = 112 # Discretization of scanning angle
-SQUASH_FACTOR_N = 1.5
-INV_SQUASH_FACTOR = 1 / SQUASH_FACTOR_N    # Factor for helping the weight distribution to be less peaked
-
-# Z_SHORT = 0.25  # Weight for short reading, something in the way
-# Z_MAX = 0.25    # Weight for max reading, out of range
-# Z_RAND = 0.25   # Weight for random reading, random noise
-# Z_HIT = 0.25    # Weight for hit reading, hit obj properly
-# Z_SHORT = 0.1  # Weight for short reading, something in the way
-# Z_MAX = 0.1    # Weight for max reading, out of range
-# Z_RAND = 0.1   # Weight for random reading, random noise
-# Z_HIT = 0.7    # Weight for hit reMAX_RANGE_METERSading, hit obj properly
 SIGMA_HIT = 20 # Noise value for hit reading
 
 LAMBDA_SHORT = 0.01

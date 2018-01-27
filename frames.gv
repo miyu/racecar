@@ -1,2 +1,30 @@
 digraph G {
-"no tf data recieved"}
+"chassis" -> "right_steering_hinge"[label="Broadcaster: /chassis_to_right_steering_hinge\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"base_link" -> "chassis"[label="Broadcaster: /base_link_to_chassis\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"base_link" -> "camera_link"[label="Broadcaster: /base_link_to_camera\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"right_steering_hinge" -> "right_front_wheel"[label="Broadcaster: /right_steering_hinge_to_right_front_wheel\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"base_link" -> "base_imu_link"[label="Broadcaster: /base_link_to_imu\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"chassis" -> "left_rear_wheel"[label="Broadcaster: /chassis_to_left_rear_wheel\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"base_link" -> "laser"[label="Broadcaster: /base_link_to_laser\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"camera_link" -> "camera_rgb_frame"[label="Broadcaster: /camera/nodelet_manager\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"camera_rgb_frame" -> "camera_rgb_optical_frame"[label="Broadcaster: /camera/nodelet_manager\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"camera_link" -> "camera_depth_frame"[label="Broadcaster: /camera/nodelet_manager\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"camera_depth_frame" -> "camera_depth_optical_frame"[label="Broadcaster: /camera/nodelet_manager\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"camera_link" -> "camera_ir_frame"[label="Broadcaster: /camera/nodelet_manager\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"camera_ir_frame" -> "camera_ir_optical_frame"[label="Broadcaster: /camera/nodelet_manager\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"camera_link" -> "camera_ir2_frame"[label="Broadcaster: /camera/nodelet_manager\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"camera_ir2_frame" -> "camera_ir2_optical_frame"[label="Broadcaster: /camera/nodelet_manager\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"camera_link" -> "camera_fisheye_frame"[label="Broadcaster: /camera/nodelet_manager\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"camera_fisheye_frame" -> "camera_fisheye_optical_frame"[label="Broadcaster: /camera/nodelet_manager\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"camera_link" -> "camera_imu_frame"[label="Broadcaster: /camera/nodelet_manager\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"camera_imu_frame" -> "camera_imu_optical_frame"[label="Broadcaster: /camera/nodelet_manager\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"base_link" -> "base_footprint"[label="Broadcaster: /base_link_to_base_footprint\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"chassis" -> "left_steering_hinge"[label="Broadcaster: /chassis_to_left_steering_hinge\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"chassis" -> "right_rear_wheel"[label="Broadcaster: /chassis_to_right_rear_wheel\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"left_steering_hinge" -> "left_front_wheel"[label="Broadcaster: /left_steering_hinge_to_left_front_wheel\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1517092259.249 sec old)\nBuffer length: 0.000 sec\n"];
+"laser" -> "map"[label="Broadcaster: /Particle_filter\nAverage rate: 1.720 Hz\nMost recent transform: 1516312675.575 ( 779583.674 sec old)\nBuffer length: 4.070 sec\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 1517092259.249"[ shape=plaintext ] ;
+ }->"base_link";
+}
