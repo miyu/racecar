@@ -6,6 +6,7 @@ import numpy as np
 import time
 import utils as Utils
 import tf.transformations
+from tf.transformations import euler_from_quaternion
 import tf
 from threading import Lock
 from copy import deepcopy
@@ -21,6 +22,7 @@ from SensorModel import SensorModel
 from MotionModel import OdometryMotionModel, KinematicMotionModel
 
 import random
+from Debug import print_locks
 
 
 class ParticleFilter():
@@ -109,8 +111,8 @@ class ParticleFilter():
             (pose[0], pose[1], 0), \
             tf.transformations.quaternion_from_euler(0, 0, pose[2]), \
             rospy.Time.now(), \
-            "/map",
-            "/scan")
+            "/laser",
+            "/map")
 
             # "map",
             # child_frame_id) # /scan => /map
@@ -144,11 +146,16 @@ class ParticleFilter():
 
         center_x = msg.pose.pose.position.x
         center_y = msg.pose.pose.position.y
+        theta = euler_from_quaternion([ \
+            msg.pose.pose.orientation.x, \
+            msg.pose.pose.orientation.y, \
+            msg.pose.pose.orientation.z, \
+            msg.pose.pose.orientation.w])[2]
 
         for i in range(0, self.MAX_PARTICLES):
             self.particles[i][0] = center_x + np.random.normal(0.0, 1.0)
             self.particles[i][1] = center_y + np.random.normal(0.0, 1.0)
-            self.particles[i][2] = np.random.uniform(0, 6.28)
+            self.particles[i][2] = theta + np.random.normal(0.0, 0.3)
             self.weights[i] = 1.0 / self.MAX_PARTICLES
 
         print("Exiting lock clicked_pose_cb")
@@ -173,9 +180,9 @@ class ParticleFilter():
             pose.orientation.w = orien[3]
             return pose
 
-        print("Entering lock visualize")
+        print_locks("Entering lock visualize")
         self.state_lock.acquire()
-        print("Entered lock visualize")
+        print_locks("Entered lock visualize")
 
         pose = self.expected_pose()
 
@@ -184,7 +191,7 @@ class ParticleFilter():
 
         # (2) Publishes the most recent laser measurement. Note that the frame_id of this message should be the child_frame_id of the tf from (1)
         laser = deepcopy(self.sensor_model.last_laser)
-        laser.header.frame_id = "/scan" #"laser"
+        laser.header.frame_id = "/laser" #"laser"
         self.pub_laser.publish(laser) # /scan /map /map
 
         # (3) Publishes a PoseStamped message indicating the expected pose of the car
@@ -204,7 +211,7 @@ class ParticleFilter():
         particles_msg.poses = [make_pose_from_xy_theta(sampled_particles[i]) for i in range(len(sampled_particles))]
         self.particle_pub.publish(particles_msg)
 
-        print("Exiting lock visualize")
+        print_locks("Exiting lock visualize")
         self.state_lock.release()
 
 # Suggested main

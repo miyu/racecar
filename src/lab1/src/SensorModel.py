@@ -7,21 +7,31 @@ import time
 from sensor_msgs.msg import LaserScan
 from threading import Lock
 
+from Debug import print_locks
+
 THETA_DISCRETIZATION = 112 # Discretization of scanning angle
 SQUASH_FACTOR_N = 1.5
 INV_SQUASH_FACTOR = 1 / SQUASH_FACTOR_N    # Factor for helping the weight distribution to be less peaked
 
-# Z_SHORT = 0.25  # Weight for short reading, something in the way
-# Z_MAX = 0.25    # Weight for max reading, out of range
-# Z_RAND = 0.25   # Weight for random reading, random noise
-# Z_HIT = 0.25    # Weight for hit reading, hit obj properly
-Z_SHORT = 0.1  # Weight for short reading, something in the way
-Z_MAX = 0.1    # Weight for max reading, out of range
-Z_RAND = 0.1   # Weight for random reading, random noise
-Z_HIT = 0.7    # Weight for hit reading, hit obj properly
-SIGMA_HIT = 0.2 # Noise value for hit reading
+Z_HIT = 5 # Weight for hit reading, hit obj properly
+Z_SHORT = 1 # Weight for short reading, something in the way
+Z_MAX = 0.05 # Weight for max reading, out of range
+Z_RAND = 2 # Weight for random reading, random noise
 
-LAMBDA_SHORT = 3.0
+Z_NORM = float(Z_HIT + Z_SHORT + Z_MAX + Z_RAND)
+Z_HIT /= Z_NORM
+Z_SHORT /= Z_NORM
+Z_MAX /= Z_NORM
+Z_RAND /= Z_NORM
+
+SIGMA_HIT = 20 # Noise value for hit reading
+
+# Z_HIT = 0
+# Z_SHORT = 0
+# Z_MAX = 0
+# Z_RAND = 1
+
+LAMBDA_SHORT = 0.01
 
 class SensorModel:
     def __init__(self, map_msg, particles, weights, state_lock=None):
@@ -62,9 +72,9 @@ class SensorModel:
         # self.do_resample = True
         # return
 
-        print("Entering lock lidar_cb")
+        print_locks("Entering lock lidar_cb")
         self.state_lock.acquire()
-        print("Entered lock lidar_cb")
+        print_locks("Entered lock lidar_cb")
 
         # Compute the observation
         # obs is a a two element tuple
@@ -86,14 +96,14 @@ class SensorModel:
         self.weights /= np.sum(self.weights)
         after = np.array(self.weights, dtype=np.float32)
 
-        print("PRIOR", [x for x in reversed(sorted(prior))][0:20])
-        print("AFTER", [x for x in reversed(sorted(after))][0:20])
-        print("DELTA", [x for x in reversed(sorted(after - prior))][0:20])
+        #print("PRIOR", [x for x in reversed(sorted(prior))][0:20])
+        #print("AFTER", [x for x in reversed(sorted(after))][0:20])
+        #print("DELTA", [x for x in reversed(sorted(after - prior))][0:20])
 
         self.last_laser = msg
         self.do_resample = True
 
-        print("Exiting lock lidar_cb")
+        print_locks("Exiting lock lidar_cb")
         self.state_lock.release()
         #print(self.precompute_sensor_model(280))
 
@@ -117,30 +127,27 @@ class SensorModel:
             return (1.0 / denom1) * np.exp((-0.5) * numer2 / denom2)
 
 
-        def compute_p_short_eng(ztk):
-            return LAMBDA_SHORT * np.exp(-LAMBDA_SHORT * ztk)
+        def compute_p_short_unnormalized(ztk, ztkstar):
+            if 0.0 <= ztk <= ztkstar:
+                return LAMBDA_SHORT * np.exp(-LAMBDA_SHORT * ztk)
+            else:
+                return 0.0
 
         engs = np.zeros((table_width, table_width))
-        p_short_engs = np.zeros((table_width, table_width))
+        p_short_unnormalized = np.zeros((table_width, table_width))
         for i in range(table_width):
             for j in range(table_width):
                 engs[i][j] = compute_eng(float(i), float(j), SIGMA_HIT * SIGMA_HIT)
-                p_short_engs[i][j] = compute_p_short_eng(float(i))
+                p_short_unnormalized[i][j] = compute_p_short_unnormalized(float(i), float(j))
 
         engs = engs / engs.sum(axis=0, dtype=float)
-        p_short_engs = p_short_engs / p_short_engs.sum(axis=0, dtype=float)
+        p_short_normalized = p_short_unnormalized / p_short_unnormalized.sum(axis=0, dtype=float)
 
         def compute_p_hit(i, j, max_range_px):
             return engs[i][j] if 0.0 <= i <= max_range_px else 0.0
 
-
-
         def compute_p_short(i, j):
-            # if i == 0 or j == 0 or not (0 <= i <= j):
-            #     return 0.0
-            # p_short_eng = 1.0 / (1.0 - np.exp(-LAMBDA_SHORT * j))
-            #return p_short_eng * LAMBDA_SHORT * np.exp(-LAMBDA_SHORT * i)
-            return p_short_engs[i][j] if 0.0 <= i <= j else 0.0
+            return p_short_normalized[i][j]
 
         def compute_p_max(i, max_range_px):
             return 1 if i == max_range_px else 0.0
@@ -167,8 +174,11 @@ class SensorModel:
         column_sums = sensor_model_table.sum(axis=0)
         row_sums = sensor_model_table.sum(axis=1)
         #print("Column Sums: ", column_sums)
+
+        print("SMT:")
+        print(sensor_model_table)
         for j in range(table_width):
-             assert abs(column_sums[j] - 1.0) <= 0.02
+            assert abs(column_sums[j] - 1.0) <= 0.02
 
         return sensor_model_table
 
