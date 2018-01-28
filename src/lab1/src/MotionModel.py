@@ -12,6 +12,11 @@ from threading import Lock
 from Debug import print_locks, print_benchmark
 import time
 
+def rotate_2d(x, y, theta):
+    c = math.cos(theta)
+    s = math.sin(theta)
+    return (c * x - s * y, s * x + c * y)
+
 class OdometryMotionModel:
     def __init__(self, particles , state_lock=None):
         self.last_pose = None # The last pose thatwas received
@@ -20,7 +25,7 @@ class OdometryMotionModel:
     	if state_lock is None:
             self.state_lock = Lock()
         else:
-	        self.state_lock = state_lock
+	    self.state_lock = state_lock
 
     def motion_cb(self, msg):
         # # uncomment to no-op
@@ -55,8 +60,15 @@ class OdometryMotionModel:
             angle = euler_from_quaternion([x_o, y_o, z_o, w_o])
             theta2 = angle[2]
 
+            robot_frame_dx, robot_frame_dy = x2 - x1, y2 - y1
+            dtheta = theta2 - theta1
+             
+            local_relative_dx, local_relative_dy = rotate_2d(robot_frame_dx, robot_frame_dy, -theta1)
+
+            print("ROBOT AT", x2, y2, "theta", theta2, "LR", robot_frame_dx, robot_frame_dy, dtheta)
+
             pose = np.array([x2, y2, theta2], dtype=np.float64)
-            control = np.array([x2 - x1, y2 - y1, theta2 - theta1], dtype=np.float64)
+            control = np.array([local_relative_dx, local_relative_dy, dtheta], dtype=np.float64)
 
             # print("Control in if ", control)
         else:
@@ -99,12 +111,28 @@ class OdometryMotionModel:
     	# pdist has dim MAX_PARTICLES x 3 => Individual particle is 1 x 3.
     	# result should be dim MAX_PARTICLES x 3 => result particle is 1 x 3.
     	# Hence, control should be 1 x 3. => Dot product
-    	control = np.reshape(control, (1, 3))
-    	noise = np.array([np.random.normal(0, var) for var in [0.01, 0.01, 0.05]], dtype=np.float64)
+
+        num_particles = proposal_dist.shape[0]
+        base_dx, base_dy, dtheta = control
+        for i in range(num_particles):
+            cx, cy, ctheta = proposal_dist[i][0], proposal_dist[i][1], proposal_dist[i][2]
+            applied_dx = base_dx + np.random.normal(0, abs(base_dx * 0.25) + 0.03)
+            applied_dy = base_dy + np.random.normal(0, abs(base_dy * 0.25) + 0.03)
+            applied_dtheta = dtheta + np.random.normal(0, abs(dtheta * 0.2) + 0.03)
+            rx, ry = rotate_2d(applied_dx, applied_dy, ctheta)
+            self.particles[i][0] = cx + rx
+            self.particles[i][1] = cy + ry
+            self.particles[i][2] = ctheta + applied_dtheta
+
+    	#control_np = np.reshape(control, (1, 3))
+        #var_dx = abs(control[0] * 0.1) + 1E-6
+        #var_dy = abs(control[1] * 0.1) + 1E-6
+        #var_dtheta = abs(control[2] * 0.1) + 1E-6
+    	#noise = np.array([np.random.normal(0, var) for var in [var_dx, var_dy, var_dtheta]], dtype=np.float64)
     	#print("In apply_motion_model, control is  ", control)
     	#print("Proposal dist", proposal_dist)
 
-    	self.particles[:][:] = np.array(proposal_dist + control + noise, dtype=np.float64)
+    	#self.particles[:, :] = np.array(proposal_dist + control_np + noise, dtype=np.float64)
 
 class KinematicMotionModel:
     def __init__(self, particles=None, state_lock=None):
