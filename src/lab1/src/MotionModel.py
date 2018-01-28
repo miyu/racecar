@@ -171,17 +171,34 @@ class KinematicMotionModel:
     def apply_motion_model(self, proposal_dist, control):
         # Update the proposal distribution by applying the control to each particle
         # YOUR CODE HERE
-        for i in range(len(proposal_dist)):
-            noise = np.array([np.random.normal(0, var) for var in [0.1, 0.3, 1E-10]], dtype=np.float64)
-            [curr_speed, curr_steering_angle, dt] = control + noise
+        num_particles = proposal_dist.shape[0]
 
-            [x,y,theta] = proposal_dist[i]
-            dx = (curr_speed) * math.cos(theta) # added - shit was flipped
-            dy = (curr_speed) * math.sin(theta)
-            beta = math.atan(math.tan(curr_steering_angle) / 2.0)
-            dtheta = (curr_speed / 0.33) * math.sin(2.0 * beta) # Length = 0.33 m
+        # TODO: consider applying same control noise to all particles.
+        control_speeds = np.random.normal(0, 0.1, size=num_particles) + control[0]
+        control_steerings = np.random.normal(0, 0.3, size=num_particles) + control[1]
+        dt = control[2]
 
-            self.particles[i] = proposal_dist[i] + np.array([dx * dt, dy * dt, dtheta * dt], dtype=np.float64)
+        previous_thetas = proposal_dist[:, 2]
+        dx = control_speeds * np.cos(previous_thetas)
+        dy = control_speeds * np.sin(previous_thetas)
+        beta = np.arctan(np.tan(control_steerings) / 2.0)
+        dtheta = (control_speeds / 0.33) * np.sin(2.0 * beta) #0.33 is len between car wheels front/back
+
+        self.particles[:, 0] += dx * dt
+        self.particles[:, 1] += dy * dt
+        self.particles[:, 2] += dtheta * dt
+
+        # for i in range(len(proposal_dist)):
+        #     noise = np.array([np.random.normal(0, var) for var in [0.1, 0.3, 1E-10]], dtype=np.float64)
+        #     [curr_speed, curr_steering_angle, dt] = control + noise
+        #
+        #     [x,y,theta] = proposal_dist[i]
+        #     dx = (curr_speed) * math.cos(theta) # added - shit was flipped
+        #     dy = (curr_speed) * math.sin(theta)
+        #     beta = math.atan(math.tan(curr_steering_angle) / 2.0)
+        #     dtheta = (curr_speed / 0.33) * math.sin(2.0 * beta) # Length = 0.33 m
+        #
+        #     self.particles[i] = proposal_dist[i] + np.array([dx * dt, dy * dt, dtheta * dt], dtype=np.float64)
 
             #print("DELTA: ", np.array([dx, dy, dtheta], dtype=float) * dt)
             #print("  RES: ", self.particles[i])

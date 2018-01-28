@@ -87,9 +87,14 @@ class SensorModel:
         # Each element of obs must be a numpy array of type np.float32 (this is a requirement for GPU processing)
         # Use self.LASER_RAY_STEP as the downsampling step
         # Keep efficiency in mind, including by caching certain things that won't change across future iterations of this callback
+        # obs_ranges = np.array(msg.ranges[0::self.LASER_RAY_STEP], dtype=np.float32)
+        # obs_angles = np.array( \
+        #     np.arange(0, len(msg.ranges), self.LASER_RAY_STEP, dtype=np.float32) * msg.angle_increment + msg.angle_min, \
+        #     dtype=np.float32)
+        # obs = [obs_ranges, obs_angles]
+
         obs = [[], []]
         for i in range(0, len(msg.ranges), self.LASER_RAY_STEP):
-            #if not math.isnan(msg.ranges[i]):
             obs[0].append(msg.ranges[i])
             obs[1].append(msg.angle_min + i * msg.angle_increment)
 

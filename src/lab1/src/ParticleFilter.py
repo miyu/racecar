@@ -117,21 +117,29 @@ class ParticleFilter():
             # child_frame_id) # /scan => /map
 
     # Returns the expected pose given the current particles and weights
-    def expected_pose(self):
+    def expected_pose(self, particles=None, weights=None):
+        particles = particles if particles is not None else self.particles
+        weights = weights if weights is not None else self.weights
+
         # YOUR CODE HERE
-        pos_acc = np.array([0.0, 0.0])
-        orien_acc = np.array([0.0, 0.0])
+        num_particles = particles.shape[0]
+        posx = (particles[:, 0] * weights).sum() / num_particles
+        posy = (particles[:, 1] * weights).sum() / num_particles
+        orienxacc = (np.cos(particles[:, 2]) * weights).sum()
+        orienyacc = (np.sin(particles[:, 2]) * weights).sum()
+        orien = math.atan2(orienyacc, orienxacc)
+        return np.array([posx, posy, orien])
 
-        for i in range(0, len(self.particles)):
-            [x, y, theta] = self.particles[i]
-            w = self.weights[i]
-            pos_acc += np.array([x, y], dtype=float) * float(w)
-            orien_acc += np.array([math.cos(theta), math.sin(theta)], dtype=float) * w
-
-        pos_expected = pos_acc / np.sum(self.weights)
-        theta_expected = math.atan2(orien_acc[1], orien_acc[0])
-
-        return np.array([pos_expected[0], pos_expected[1], theta_expected], dtype=float)
+        # for i in range(0, len(particles)):
+        #     [x, y, theta] = particles[i]
+        #     w = weights[i]
+        #     pos_acc += np.array([x, y], dtype=float) * float(w)
+        #     orien_acc += np.array([math.cos(theta), math.sin(theta)], dtype=float) * w
+        #
+        # pos_expected = pos_acc / np.sum(weights)
+        # theta_expected = math.atan2(orien_acc[1], orien_acc[0])
+        #
+        # return np.array([pos_expected[0], pos_expected[1], theta_expected], dtype=float)
 
     # Callback for '/initialpose' topic. RVIZ publishes a message to this topic when you specify an initial pose using its GUI
     # Reinitialize your particles and weights according to the received initial pose
@@ -183,14 +191,19 @@ class ParticleFilter():
         self.state_lock.acquire()
         print_locks("Entered lock visualize")
         start_time = time.time()
+        laser = self.sensor_model.last_laser # no deepcopy
+        particles = np.copy(self.particles)
+        weights = np.copy(self.weights)
+        print_locks("Exiting lock visualize (computation will continue)")
+        self.state_lock.release()
 
-        pose = self.expected_pose()
+        # compute pose
+        pose = self.expected_pose(particles, weights)
 
         # (1) Publishes a tf between the map and the laser. Necessary for visualizing the laser scan in the map
         self.publish_tf(pose)
 
         # (2) Publishes the most recent laser measurement. Note that the frame_id of this message should be the child_frame_id of the tf from (1)
-        laser = deepcopy(self.sensor_model.last_laser)
         laser.header.frame_id = "/laser" #"laser"
         self.pub_laser.publish(laser) # /scan /map /map
 
@@ -203,17 +216,16 @@ class ParticleFilter():
 
         # (4) Publishes a subsample of the particles (use self.MAX_VIZ_PARTICLES).
         #     Sample so that particles with higher weights are more likely to be sampled.
-        particle_indices = np.random.choice(self.MAX_PARTICLES, size=self.MAX_VIZ_PARTICLES, replace=False, p=self.weights)
-        sampled_particles = self.particles[particle_indices][:]
+        particle_indices = np.random.choice(self.MAX_PARTICLES, size=self.MAX_VIZ_PARTICLES, replace=False, p=weights)
+        sampled_particles = particles[particle_indices, :]
         particles_msg = PoseArray()
         particles_msg.header.stamp = rospy.Time.now()
         particles_msg.header.frame_id = '/map'
         particles_msg.poses = [make_pose_from_xy_theta(sampled_particles[i]) for i in range(len(sampled_particles))]
         self.particle_pub.publish(particles_msg)
 
-        print_locks("Exiting lock visualize")
+        print_locks("Finished visualize")
         print_benchmark("visualize", start_time, time.time())
-        self.state_lock.release()
 
 # Suggested main
 if __name__ == '__main__':

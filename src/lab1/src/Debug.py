@@ -3,4 +3,4 @@ def print_locks(*args):
     pass
 
 def print_benchmark(what, start_time, end_time):
-    pass
+    print("benchmark: ", what, "took", (end_time - start_time) * 1000, "millis")
