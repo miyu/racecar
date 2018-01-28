@@ -68,7 +68,7 @@ class ParticleFilter():
         print("XZ!")
 
         self.MOTION_MODEL_TYPE = rospy.get_param("~motion_model", "kinematic") # Whether to use the odometry or kinematics based motion model
-        print("!~!@#@!")
+        print("!~!@#@! MOTION MODEL TYPE", self.MOTION_MODEL_TYPE)
         if self.MOTION_MODEL_TYPE == "kinematic":
             self.motion_model = KinematicMotionModel(self.particles, self.state_lock) # An object used for applying kinematic motion model
             self.motion_sub = rospy.Subscriber(rospy.get_param("~motion_topic", "/vesc/sensors/core"), VescStateStamped, self.motion_model.motion_cb, queue_size=1)
@@ -123,8 +123,8 @@ class ParticleFilter():
 
         # YOUR CODE HERE
         num_particles = particles.shape[0]
-        posx = (particles[:, 0] * weights).sum() / num_particles
-        posy = (particles[:, 1] * weights).sum() / num_particles
+        posx = (particles[:, 0] * weights).sum()
+        posy = (particles[:, 1] * weights).sum()
         orienxacc = (np.cos(particles[:, 2]) * weights).sum()
         orienyacc = (np.sin(particles[:, 2]) * weights).sum()
         orien = math.atan2(orienyacc, orienxacc)
