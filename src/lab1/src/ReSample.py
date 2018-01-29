@@ -2,6 +2,8 @@ import rospy
 import numpy as np
 from Debug import print_locks, print_benchmark
 import time
+from threading import Lock
+
 
 class ReSampler:
   def __init__(self, particles, weights, state_lock=None):
@@ -45,14 +47,14 @@ class ReSampler:
     self.state_lock.acquire()
     print_locks("Entered lock resample_low_variance")
     start_time = time.time()
-    
+
     M = len(self.particles)
     r = np.random.uniform(0, 1.0 / M) # Draw random number in the range [0, 1/M]
     U = r - (1.0 / M)
     particle_index = 0
     weight_total = self.weights[0]
     self.particle_indices = np.zeros(M, dtype=int)
-    
+
     for new_particle_index in range(M):
         U += (1.0 / M)
         while U > weight_total:
@@ -60,7 +62,7 @@ class ReSampler:
             weight_total += self.weights[particle_index % M]
         particle_index = particle_index % M
         self.particle_indices[new_particle_index] = particle_index
-        
+
     self.particles[:, :] = self.particles[self.particle_indices, :]
     self.weights[:] = (1.0 / M)
 
