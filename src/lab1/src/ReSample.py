@@ -48,7 +48,7 @@ class ReSampler:
     
     M = len(self.particles)
     new_particles = np.array(self.particles.shape, dtype=np.float64)
-    r = random.uniform(0, 1.0 / M) # Draw random number in the range [0, 1/M]
+    r = np.random.uniform(0, 1.0 / M) # Draw random number in the range [0, 1/M]
     U = r - (1.0 / M)
     particle_index = 0
     weight_total = self.weights[0]
@@ -59,7 +59,8 @@ class ReSampler:
             particle_index += 1
             weight_total += self.weights[particle_index % M]
         particle_index = particle_index % M
-        new_particles[new_particle_index] = self.particles[particle_index]
+        print(new_particles[new_particle_index][:].shape, self.particles[particle_index][:].shape)
+        new_particles[new_particle_index][:] = self.particles[particle_index][:]
         
     self.particles = new_particles
 

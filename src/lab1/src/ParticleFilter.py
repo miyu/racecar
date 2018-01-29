@@ -238,10 +238,12 @@ if __name__ == '__main__':
       pf.sensor_model.do_resample = False # Reset so that we don't keep resampling
 
       # Resample
-      if pf.RESAMPLE_TYPE == "naiive":
+      if False: #pf.RESAMPLE_TYPE == "naiive":
         pf.resampler.resample_naiive()
-      elif pf.RESAMPLE_TYPE == "low_variance":
+        print("Using Naive Sampler")
+      elif True: #pf.RESAMPLE_TYPE == "low_variance":
         pf.resampler.resample_low_variance()
+        print("Using Low Variance Sampler")
       else:
         print "Unrecognized resampling method: "+ pf.RESAMPLE_TYPE
 
