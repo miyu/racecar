@@ -1,4 +1,5 @@
 import rospy
+import math
 import numpy as np
 from Debug import print_locks, print_benchmark
 import time
@@ -49,22 +50,39 @@ class ReSampler:
     start_time = time.time()
 
     M = len(self.particles)
-    r = np.random.uniform(0, 1.0 / M) # Draw random number in the range [0, 1/M]
-    U = r - (1.0 / M)
-    particle_index = 0
-    weight_total = self.weights[0]
-    self.particle_indices = np.zeros(M, dtype=int)
+    r = np.random.uniform(0.0, 1.0)
+    weights_cdf = np.cumsum(self.weights)
+    search_ws = r + np.arange(M, dtype=float) / float(M)
+    search_ws, ignore = np.modf(search_ws) #fractional, int
+    particle_indices = np.searchsorted(weights_cdf, search_ws)
+    self.particles[:, :] = self.particles[particle_indices, :]
 
-    for new_particle_index in range(M):
-        U += (1.0 / M)
-        while U > weight_total:
-            particle_index += 1
-            weight_total += self.weights[particle_index % M]
-        particle_index = particle_index % M
-        self.particle_indices[new_particle_index] = particle_index
+    # for i in range(M):
+    #     ind = numpy.searchsorted(weights_cdf, r)
+    #     # sanity, don't understand searchsorted propss
+    #     ind = max(min(M - 1, ind), 0)
+    #
+    #     w = self.weights[ind]
+    #     r += 1.0 / M
+    #     r = r - math.floor(r)
 
-    self.particles[:, :] = self.particles[self.particle_indices, :]
-    self.weights[:] = (1.0 / M)
+    # M = len(self.particles)
+    # r = np.random.uniform(0.0, 1.0) # Draw random number in the range [0, 1/M]
+    # U = r - (1.0 / M)
+    # particle_index = 0
+    # weight_total = self.weights[0]
+    # self.particle_indices = np.zeros(M, dtype=int)
+    #
+    # for new_particle_index in range(M):
+    #     U += (1.0 / M)
+    #     while U > weight_total:
+    #         particle_index += 1
+    #         weight_total += self.weights[particle_index % M]
+    #     particle_index = particle_index % M
+    #     self.particle_indices[new_particle_index] = particle_index
+    #
+    # self.particles[:, :] = self.particles[self.particle_indices, :]
+    # self.weights[:] = (1.0 / M)
 
     print_locks("Exiting lock resample_low_variance")
     print_benchmark("resample_low_variance", start_time, time.time())

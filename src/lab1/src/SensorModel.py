@@ -10,7 +10,7 @@ from threading import Lock
 from Debug import print_locks, print_benchmark
 
 THETA_DISCRETIZATION = 112 # Discretization of scanning angle
-SQUASH_FACTOR_N = 2.0 # if squash factor is high, then flatten distribution (more particles win)
+SQUASH_FACTOR_N = 1000.0 # if squash factor is high, then flatten distribution (more particles win)
 # if squash factor is low, then bigger peaks (few particles win)
 INV_SQUASH_FACTOR = 1 / SQUASH_FACTOR_N    # Factor for helping the weight distribution to be less peaked
 # if INV_SQUASH_FACTOR is really big, then basically one particle wins.

@@ -41,7 +41,7 @@ class InternalOdometryMotionModel:
         num_particles = proposal_dist.shape[0]
         base_local_dx, base_local_dy, base_dtheta = control
         local_dxs = base_local_dx + np.random.normal(0, abs(base_local_dx * self.noise_params[0][0]) + self.noise_params[0][1], num_particles)
-        local_dys = base_local_dy + np.random.normal(0, abs(base_local_dy * self.noise_params[0][0]) + self.noise_params[0][1], num_particles)
+        local_dys = base_local_dy + np.random.normal(0, abs(base_local_dy * self.noise_params[1][0]) + self.noise_params[1][1], num_particles)
         local_dthetas = base_dtheta + np.random.normal(0, abs(base_dtheta * self.noise_params[2][0]) + self.noise_params[2][1], num_particles)
 
         # update thetas before xs and ys
