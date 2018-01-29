@@ -7,147 +7,47 @@ import utils as Utils
 from std_msgs.msg import Float64
 from nav_msgs.msg import Odometry
 from vesc_msgs.msg import VescStateStamped
-from tf.transformations import euler_from_quaternion
 from threading import Lock
 from Debug import print_locks, print_benchmark
 import time
 
-def rotate_2d(x, y, theta):
-    c = math.cos(theta)
-    s = math.sin(theta)
-    return (c * x - s * y, s * x + c * y)
+from InternalMotionModel import InternalOdometryMotionModel, InternalKinematicMotionModel
 
 class OdometryMotionModel:
-    def __init__(self, particles , state_lock=None):
-        self.last_pose = None # The last pose thatwas received
-    	self.particles = particles if particles is not None else np.array([[0.0, 0.0, 0.0]], dtype=np.float64)
-    	self.sub = rospy.Subscriber("/vesc/odom",Odometry, self.motion_cb )
-    	if state_lock is None:
-            self.state_lock = Lock()
-        else:
-	    self.state_lock = state_lock
+    def __init__(self, particles, state_lock=None):
+        self.sub = rospy.Subscriber("/vesc/odom",Odometry, self.motion_cb )
+        self.state_lock = state_lock or Lock()
+
+        # init internal odometry model
+        particles = particles or np.array([[0.0, 0.0, 0.0]], dtype=np.float64)
+        self.inner = InternalOdometryMotionModel(particles, [0, 0, 0])
 
     def motion_cb(self, msg):
-        # # uncomment to no-op
-        # return
-
         print_locks("Entering lock motion_cb")
         self.state_lock.acquire()
         print_locks("Entered lock motion_cb")
         start_time = time.time()
 
-    	pose = None
-    	control = None
-    	if isinstance(self.last_pose, np.ndarray):
-            # Compute the control from the msg and last_pose
-            # YOUR CODE HERE
-            # reference frame pose position [x,y,z]-> starting position of car, z is static (2D motion)
-            # pose orientation [x,y,z,w]. x, y are 0. z^2 + w^2 = 1.
-            # difference in orientation between last pose and current?
-            #print(self.last_pose);
-            x1 = self.last_pose[0]
-            y1 = self.last_pose[1]
-            theta1 = self.last_pose[2]
+        x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
+        theta = Utils.quaternion_to_angle(msg.pose.pose.orientation)
+        self.inner.update([x, y, theta])
 
-            x2 = msg.pose.pose.position.x
-            y2 = msg.pose.pose.position.y
-
-            x_o = msg.pose.pose.orientation.x
-            y_o = msg.pose.pose.orientation.y
-            z_o = msg.pose.pose.orientation.z
-            w_o = msg.pose.pose.orientation.w
-
-            angle = euler_from_quaternion([x_o, y_o, z_o, w_o])
-            theta2 = angle[2]
-
-            robot_frame_dx, robot_frame_dy = x2 - x1, y2 - y1
-            dtheta = theta2 - theta1
-             
-            local_relative_dx, local_relative_dy = rotate_2d(robot_frame_dx, robot_frame_dy, -theta1)
-
-            print("ROBOT AT", x2, y2, "theta", theta2, "LR", robot_frame_dx, robot_frame_dy, dtheta)
-
-            pose = np.array([x2, y2, theta2], dtype=np.float64)
-            control = np.array([local_relative_dx, local_relative_dy, dtheta], dtype=np.float64)
-
-            # print("Control in if ", control)
-        else:
-            x = msg.pose.pose.position.x
-            y = msg.pose.pose.position.y
-
-            x_o = msg.pose.pose.orientation.x
-            y_o = msg.pose.pose.orientation.y
-            z_o = msg.pose.pose.orientation.z
-            w_o = msg.pose.pose.orientation.w
-
-            angle = euler_from_quaternion([x_o, y_o, z_o, w_o])
-            '''
-            print("x: ",x);
-            print("y: ", y);
-            print("x_o", x_o)
-            print("y_o", y_o)
-            print("z_o", z_o)
-            print("w_o", w_o)
-            print("delta: ", angle[2]);
-            '''
-            pose = np.array([x,y,angle[2]], dtype=np.float64);
-
-            control = np.array([0, 0, 0], dtype=np.float64)
-
-            #print("Conrtol in else: ", control)
-
-        #print("Check")
-
-    	self.apply_motion_model(self.particles, control)
-
-    	self.last_pose = pose
         print_locks("Releasing lock motion_cb")
         print_benchmark("odometry motion_cb", start_time, time.time())
         self.state_lock.release()
 
-    def apply_motion_model(self, proposal_dist, control):
-    	# Update the proposal distribution by applying the control to each particle
-    	# YOUR CODE HERE
-    	# pdist has dim MAX_PARTICLES x 3 => Individual particle is 1 x 3.
-    	# result should be dim MAX_PARTICLES x 3 => result particle is 1 x 3.
-    	# Hence, control should be 1 x 3. => Dot product
-
-        num_particles = proposal_dist.shape[0]
-        base_dx, base_dy, dtheta = control
-        for i in range(num_particles):
-            cx, cy, ctheta = proposal_dist[i][0], proposal_dist[i][1], proposal_dist[i][2]
-            applied_dx = base_dx + np.random.normal(0, abs(base_dx * 0.25) + 0.03)
-            applied_dy = base_dy + np.random.normal(0, abs(base_dy * 0.25) + 0.03)
-            applied_dtheta = dtheta + np.random.normal(0, abs(dtheta * 0.2) + 0.03)
-            rx, ry = rotate_2d(applied_dx, applied_dy, ctheta)
-            self.particles[i][0] = cx + rx
-            self.particles[i][1] = cy + ry
-            self.particles[i][2] = ctheta + applied_dtheta
-
-    	#control_np = np.reshape(control, (1, 3))
-        #var_dx = abs(control[0] * 0.1) + 1E-6
-        #var_dy = abs(control[1] * 0.1) + 1E-6
-        #var_dtheta = abs(control[2] * 0.1) + 1E-6
-    	#noise = np.array([np.random.normal(0, var) for var in [var_dx, var_dy, var_dtheta]], dtype=np.float64)
-    	#print("In apply_motion_model, control is  ", control)
-    	#print("Proposal dist", proposal_dist)
-
-    	#self.particles[:, :] = np.array(proposal_dist + control_np + noise, dtype=np.float64)
-
 class KinematicMotionModel:
     def __init__(self, particles=None, state_lock=None):
+        # state tracking
         self.last_servo_cmd = None # The most recent servo command
         self.last_vesc_stamp = None # The time stamp from the previous vesc state msg
-        self.particles = particles if particles is not None else np.array([[0, 0, 0]], dtype=np.float64)
+        self.state_lock = state_lock or Lock()
+
+        # config
         self.SPEED_TO_ERPM_OFFSET = float(rospy.get_param("/vesc/speed_to_erpm_offset")) # Offset conversion param from rpm to speed
         self.SPEED_TO_ERPM_GAIN   = float(rospy.get_param("/vesc/speed_to_erpm_gain"))   # Gain conversion param from rpm to speed
         self.STEERING_TO_SERVO_OFFSET = float(rospy.get_param("/vesc/steering_angle_to_servo_offset")) # Offset conversion param from servo position to steering angle
         self.STEERING_TO_SERVO_GAIN   = float(rospy.get_param("/vesc/steering_angle_to_servo_gain")) # Gain conversion param from servo position to steering angle
-
-        if state_lock is None:
-            self.state_lock = Lock()
-        else:
-            self.state_lock = state_lock
 
         # This subscriber just caches the most recent servo position command
         self.servo_pos_sub = rospy.Subscriber(rospy.get_param("~servo_pos_topic", "/vesc/sensors/servo_position_command"), Float64,self.servo_cb, queue_size=1)
@@ -155,13 +55,16 @@ class KinematicMotionModel:
         #To get velocity
         self.motion_vel_sub = rospy.Subscriber(rospy.get_param("~vel", "/vesc/sensors/core"), VescStateStamped, self.motion_cb)
 
+        # init internal kinematic model
+        particles = particles or np.array([[0, 0, 0]], dtype=np.float64)
+        self.inner = InternalKinematicMotionModel(particles)
+
     def servo_cb(self, msg):
+        self.state_lock.acquire()
         self.last_servo_cmd = msg.data # Just update servo command
+        self.state_lock.release()
 
     def motion_cb(self, msg):
-        # # uncomment to no-op
-        # return
-
         print_locks("Entering lock motion_cb")
         self.state_lock.acquire()
         print_locks("Entered lock motion_cb")
@@ -182,8 +85,6 @@ class KinematicMotionModel:
 
         # Convert raw msgs to controls
         # Note that control = (raw_msg_val - offset_param) / gain_param
-        # YOUR CODE HERE
-
         curr_speed = float(float(msg.state.speed) - float(self.SPEED_TO_ERPM_OFFSET)) / float(self.SPEED_TO_ERPM_GAIN)
         curr_steering_angle = float(float(self.last_servo_cmd) - float(self.STEERING_TO_SERVO_OFFSET)) / float(self.STEERING_TO_SERVO_GAIN)
 
@@ -191,46 +92,11 @@ class KinematicMotionModel:
         # print("Steering Angle: ", curr_steering_angle, " -- ", self.last_servo_cmd, " -- ", self.STEERING_TO_SERVO_OFFSET)
         # print("Delta Time: ", dt)
 
-        self.apply_motion_model(self.particles, [curr_speed, curr_steering_angle, dt])
+        self.inner.update([curr_speed, curr_steering_angle, dt])
+
         print_locks("Releasing lock motion_cb")
         print_benchmark("kinematic motion_cb", start_time, time.time())
         self.state_lock.release()
-
-    def apply_motion_model(self, proposal_dist, control):
-        # Update the proposal distribution by applying the control to each particle
-        # YOUR CODE HERE
-        num_particles = proposal_dist.shape[0]
-
-        # TODO: consider applying same control noise to all particles.
-        control_speeds = np.random.normal(0, 0.1, size=num_particles) + control[0]
-        control_steerings = np.random.normal(0, 0.3, size=num_particles) + control[1]
-        dt = control[2]
-
-        previous_thetas = proposal_dist[:, 2]
-        dx = control_speeds * np.cos(previous_thetas)
-        dy = control_speeds * np.sin(previous_thetas)
-        beta = np.arctan(np.tan(control_steerings) / 2.0)
-        dtheta = (control_speeds / 0.33) * np.sin(2.0 * beta) #0.33 is len between car wheels front/back
-
-        self.particles[:, 0] += dx * dt
-        self.particles[:, 1] += dy * dt
-        self.particles[:, 2] += dtheta * dt
-
-        # for i in range(len(proposal_dist)):
-        #     noise = np.array([np.random.normal(0, var) for var in [0.1, 0.3, 1E-10]], dtype=np.float64)
-        #     [curr_speed, curr_steering_angle, dt] = control + noise
-        #
-        #     [x,y,theta] = proposal_dist[i]
-        #     dx = (curr_speed) * math.cos(theta) # added - shit was flipped
-        #     dy = (curr_speed) * math.sin(theta)
-        #     beta = math.atan(math.tan(curr_steering_angle) / 2.0)
-        #     dtheta = (curr_speed / 0.33) * math.sin(2.0 * beta) # Length = 0.33 m
-        #
-        #     self.particles[i] = proposal_dist[i] + np.array([dx * dt, dy * dt, dtheta * dt], dtype=np.float64)
-
-            #print("DELTA: ", np.array([dx, dy, dtheta], dtype=float) * dt)
-            #print("  RES: ", self.particles[i])
-
 
 if __name__ == '__main__':
     rospy.init_node('OdoTest1', anonymous=True)
