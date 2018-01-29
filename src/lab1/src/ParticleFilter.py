@@ -98,7 +98,7 @@ class ParticleFilter():
                     world_y = grid_y * map_msg.info.resolution + map_msg.info.origin.position.y
                     self.particles[i][0] = world_x
                     self.particles[i][1] = world_y
-                    self.particles[i][2] = random.uniform(0, 6.28)
+                    self.particles[i][2] = np.random.uniform(0, 2*np.pi)
                     break
 
     # Publish a tf between the laser and the map

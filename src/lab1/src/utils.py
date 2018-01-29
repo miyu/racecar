@@ -11,12 +11,7 @@ def angle_to_quaternion(angle):
     pass
 
 def quaternion_to_angle(q):
-    x = msg.pose.pose.orientation.x
-    y = msg.pose.pose.orientation.y
-    z = msg.pose.pose.orientation.z
-    w = msg.pose.pose.orientation.w
-
-    return euler_from_quaternion([x, y, z, w])
+    return euler_from_quaternion([q.x, q.y, q.z, q.w])[2]
 
 def map_to_world(poses,map_info):
     pass
