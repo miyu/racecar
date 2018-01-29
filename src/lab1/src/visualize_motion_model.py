@@ -71,7 +71,9 @@ if __name__=="__main__":
     # kinematic model, noise in speed, noise in steering
     #draw_kinematic_plot(120, [1, 0, 0.27], [[0, 0.05], [0, 0.1]], [-0.05, 0.35, -0.10, 0.10])
 
-    # odometry model, noise in speed
+    # odometry model, noise in speed, no noise in steering
+    draw_odometry_plot(200, [0.05, 0, 0], [[0, 0.1], [0, 0.00001], [0, 0.00001]], [-0.05, 0.35, -0.10, 0.10], 1)
+    #draw_odometry_plot(200, [0.05, 0, 0], [[0, 0.0001], [0, 0.0001], [0, 0.1]], [-0.05, 0.35, -0.5, 0.5], 5)
 
     #draw_odometry_plot(200, [0.05, 0, 0], [[0, 0.0001], [0, 0.0001], [0, 0.1]], [-0.05, 0.35, -0.5, 0.5], 5)
     #draw_odometry_plot(200, [0.05, 0.05, 0.2], [[0, 0.01], [0, 0.01], [0, 0.1]], [-0.05, 0.35, -0.5, 0.5], 5)
