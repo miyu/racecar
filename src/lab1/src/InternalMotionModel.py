@@ -2,8 +2,8 @@ import numpy as np
 import math
 
 def rotate_2d(x, y, theta):
-    c = math.cos(theta)
-    s = math.sin(theta)
+    c = np.cos(theta)
+    s = np.sin(theta)
     return (c * x - s * y, s * x + c * y)
 
 def np_array_or(x, y):
@@ -37,17 +37,31 @@ class InternalOdometryMotionModel:
         # result should be dim MAX_PARTICLES x 3 => result particle is 1 x 3.
         # Hence, control should be 1 x 3. => Dot product
 
+        # get control params
         num_particles = proposal_dist.shape[0]
-        local_dx, local_dy, dtheta = control
-        for i in range(num_particles):
-            cx, cy, ctheta = proposal_dist[i]
-            applied_dx = local_dx + np.random.normal(0, abs(local_dx * self.noise_params[0][0]) + self.noise_params[0][1])
-            applied_dy = local_dy + np.random.normal(0, abs(local_dy * self.noise_params[1][0]) + self.noise_params[1][1])
-            applied_dtheta = dtheta + np.random.normal(0, abs(dtheta * self.noise_params[2][0]) + self.noise_params[2][1])
-            rx, ry = rotate_2d(applied_dx, applied_dy, ctheta)
-            self.particles[i][0] = cx + rx
-            self.particles[i][1] = cy + ry
-            self.particles[i][2] = ctheta + applied_dtheta
+        base_local_dx, base_local_dy, base_dtheta = control
+        local_dxs = base_local_dx + np.random.normal(0, abs(base_local_dx * self.noise_params[0][0]) + self.noise_params[0][1], num_particles)
+        local_dys = base_local_dy + np.random.normal(0, abs(base_local_dy * self.noise_params[0][0]) + self.noise_params[0][1], num_particles)
+        local_dthetas = base_dtheta + np.random.normal(0, abs(base_dtheta * self.noise_params[2][0]) + self.noise_params[2][1], num_particles)
+
+        # update thetas before xs and ys
+        self.particles[:, 2] += local_dthetas
+
+        # update xs, ys
+        current_thetas = self.particles[:, 2]
+        rxs, rys = rotate_2d(local_dxs, local_dys, current_thetas)
+        self.particles[:, 0] += rxs
+        self.particles[:, 1] += rys
+
+        # for i in range(num_particles):
+        #     cx, cy, ctheta = proposal_dist[i]
+        #     applied_dx = local_dx + np.random.normal(0, abs(local_dx * self.noise_params[0][0]) + self.noise_params[0][1])
+        #     applied_dy = local_dy + np.random.normal(0, abs(local_dy * self.noise_params[1][0]) + self.noise_params[1][1])
+        #     applied_dtheta = dtheta + np.random.normal(0, abs(dtheta * self.noise_params[2][0]) + self.noise_params[2][1])
+        #     rx, ry = rotate_2d(applied_dx, applied_dy, ctheta)
+        #     self.particles[i][0] = cx + rx
+        #     self.particles[i][1] = cy + ry
+        #     self.particles[i][2] = ctheta + applied_dtheta
 
 class InternalKinematicMotionModel:
     def __init__(self, particles, noise_params=None):
