@@ -66,7 +66,7 @@ class InternalOdometryMotionModel:
 class InternalKinematicMotionModel:
     def __init__(self, particles, noise_params=None):
         self.particles = particles
-        self.noise_params = np_array_or(noise_params, np.array([[0.1, 0.03], [0.1, 0.03]]))
+        self.noise_params = np_array_or(noise_params, np.array([[0.1, 0.1], [0.1, 0.3]]))
 
     def update(self, control):
         num_particles = self.particles.shape[0]
