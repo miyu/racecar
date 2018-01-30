@@ -48,6 +48,7 @@ class ParticleFilter():
         # print(dir(map_msg))
 
         # Globally initialize the particles
+        self.map_free_space = []
         self.initialize_global(map_msg)
         print("Z!")
 
@@ -60,7 +61,7 @@ class ParticleFilter():
         print("Y!")
 
         self.RESAMPLE_TYPE = rospy.get_param("~resample_type", "naiive") # Whether to use naiive or low variance sampling
-        self.resampler = ReSampler(self.particles, self.weights, self.state_lock)  # An object used for resampling
+        self.resampler = ReSampler(self.particles, self.weights, self.state_lock, self.map_free_space)  # An object used for resampling
         print("X!")
 
         self.sensor_model = SensorModel(map_msg, self.particles, self.weights, self.state_lock) # An object used for applying sensor model
@@ -85,21 +86,23 @@ class ParticleFilter():
 
     # Initialize the particles to cover the map
     def initialize_global(self, map_msg):
-        # self.particle_indices = np.arange(self.MAX_PARTICLES)
-        # self.particles = np.zeros((self.MAX_PARTICLES,3)) # Numpy matrix of dimension MAX_PARTICLES x 3
-        # self.weights = np.ones(self.MAX_PARTICLES) / float(self.MAX_PARTICLES) # Numpy matrix containig weight for each particle
+        for grid_x in range(map_msg.info.height):
+            for grid_y in range(map_msg.info.width):
+                if map_msg.data[grid_x + grid_y * map_msg.info.width] == -1:
+                    continue
+		world_x = grid_x * map_msg.info.resolution + map_msg.info.origin.position.x
+		world_y = grid_y * map_msg.info.resolution + map_msg.info.origin.position.y
+                self.map_free_space.append((world_x, world_y))
+ 
+
         for i in range(0, self.MAX_PARTICLES):
-            while True:
-                ind = random.randint(0, len(map_msg.data) - 1) #who the hell does an inclsuive end of range? omg
-                if map_msg.data[ind] != -1:
-                    grid_x = ind % map_msg.info.width
-                    grid_y = ind / map_msg.info.width
-                    world_x = grid_x * map_msg.info.resolution + map_msg.info.origin.position.x
-                    world_y = grid_y * map_msg.info.resolution + map_msg.info.origin.position.y
-                    self.particles[i][0] = world_x
-                    self.particles[i][1] = world_y
-                    self.particles[i][2] = np.random.uniform(0, 2*np.pi)
-                    break
+            ind = random.randint(0, len(self.map_free_space) - 1) #who the hell does an inclsuive end of range? omg
+            self.particles[i][0] = self.map_free_space[ind][0]
+            self.particles[i][1] = self.map_free_space[ind][1]
+            self.particles[i][2] = np.random.uniform(0, 2*np.pi)
+
+        self.map_free_space = np.array(self.map_free_space)
+
 
     # Publish a tf between the laser and the map
     # This is necessary in order to visualize the laser scan within the map
@@ -242,6 +245,8 @@ if __name__ == '__main__':
         pf.resampler.resample_naiive()
       elif pf.RESAMPLE_TYPE == "low_variance":
         pf.resampler.resample_low_variance()
+      elif pf.RESAMPLE_TYPE == "monte_carlo":
+        pf.resampler.monte_carlo_localization(pf.sensor_model.weights_unsquashed)
       else:
         print "Unrecognized resampling method: "+ pf.RESAMPLE_TYPE
 

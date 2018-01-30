@@ -10,7 +10,7 @@ from threading import Lock
 from Debug import print_locks, print_benchmark
 
 THETA_DISCRETIZATION = 112 # Discretization of scanning angle
-SQUASH_FACTOR_N = 1000.0 # if squash factor is high, then flatten distribution (more particles win)
+SQUASH_FACTOR_N = 2.0 # if squash factor is high, then flatten distribution (more particles win)
 # if squash factor is low, then bigger peaks (few particles win)
 INV_SQUASH_FACTOR = 1 / SQUASH_FACTOR_N    # Factor for helping the weight distribution to be less peaked
 # if INV_SQUASH_FACTOR is really big, then basically one particle wins.
@@ -45,6 +45,7 @@ class SensorModel:
 
         self.particles = particles
         self.weights = weights
+        self.weights_unsquashed = np.array(weights)
 
         self.LASER_RAY_STEP = int(rospy.get_param("~laser_ray_step")) # Step for downsampling laser scans
         self.MAX_RANGE_METERS = float(rospy.get_param("~max_range_meters")) # The max range of the laser
@@ -100,10 +101,12 @@ class SensorModel:
 
         obs = [np.array(obs[0], dtype=np.float32), np.array(obs[1], dtype=np.float32)]
 
-        prior = np.array(self.weights, dtype=np.float32)
-        self.apply_sensor_model(self.particles, obs, self.weights)
-        self.weights /= np.sum(self.weights)
-        after = np.array(self.weights, dtype=np.float32)
+        #prior = np.array(self.weights, dtype=np.float32)
+        weights, weights_squashed = self.apply_sensor_model(self.particles, obs, self.weights)
+        #print("WEIGHTS", np.percentile(weights, [0, 25, 50, 75, 100]))
+        self.weights_unsquashed[:] = weights
+        self.weights[:] = weights_squashed / np.sum(weights_squashed)
+        #after = np.array(self.weights, dtype=np.float32)
 
         #print("PRIOR", [x for x in reversed(sorted(prior))][0:20])
         #print("AFTER", [x for x in reversed(sorted(after))][0:20])
@@ -210,7 +213,7 @@ class SensorModel:
         # Evaluate the sensor model on the GPU
         self.range_method.eval_sensor_model(obs_ranges, self.ranges, weights, num_rays, proposal_dist.shape[0])
 
-        np.power(weights, INV_SQUASH_FACTOR, weights)
+        return weights, np.power(weights, INV_SQUASH_FACTOR)
 
 if __name__ == '__main__':
     rospy.init_node('SensorTest1', anonymous=True)
