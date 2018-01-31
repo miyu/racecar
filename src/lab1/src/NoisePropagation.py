@@ -28,7 +28,7 @@ class NoisePropagation():
         self.kineMessage = []
         #self.odomParticles = [particles]
         self.odomParticles = np.array([particles])
-        self.kineParticles = [particles]
+        self.kineParticles = np.array([particles])
 
     def addOdomMessage(self,msg):
         #self.odomMessage.append(msg)
@@ -39,7 +39,8 @@ class NoisePropagation():
     def addKineVelMessage(self, msg):
         #self.kindVelMessage.append(msg)
         self.kine.motion_cb(msg)
-        self.kineParticles.append(self.kine.inner.particles)
+        #self.kineParticles.append(self.kine.inner.particles)
+        self.kineParticles = np.concatenate((self.kineParticles, [np.copy(self.kine.inner.particles)]), axis=0)
 
     def addKineServMessage(self, msg):
         #self.kindServMessage.append(msg)
@@ -73,6 +74,25 @@ class NoisePropagation():
             plt.scatter(x, y, color=next(c))
         plt.show()
 
+    def plotKineParticles(self):
+        c = iter(cm.rainbow(np.linspace(0, 1, len(self.kineParticles)+1)))
+        #assert len(self.odomParticles) == 20
+        for i in range(len(self.kineParticles)):
+            current_particle = self.kineParticles[i]
+            #print(current_particle.shape)
+            x = current_particle[:,0]
+            #x = column(current_particle, 0)
+
+            assert len(x) == 500
+            y = current_particle[:,1]
+            #y = column(current_particle, 1)
+
+            #print("X", x)
+            #plt.scatter(x, y)
+            plt.scatter(x, y, color=next(c))
+        plt.show()
+
+
 
 if __name__=='__main__':
     rospy.init_node("open_loop_rollout", anonymous=True)
@@ -90,9 +110,19 @@ if __name__=='__main__':
     kineControlVelCount = 0
     kineControlServCount = 0
     stepSize = 20
+
+    odomLastSec = 0
+    odomTimeStep = 1.5
+
+    kineLastSec = 0
+    kineNowSec = 0
+    kineTimeStep = 1.5
+
     try:
         for topic, msg, t in bag.read_messages():
-            if topic == '/vesc/odom' and noiseProp is not None and odomControlCount < stepSize:
+            if topic == '/vesc/odom' and noiseProp is not None and odomControlCount < stepSize \
+            and  msg.header.stamp.to_sec()- odomLastSec > odomTimeStep:
+                odomLastSec = msg.header.stamp.to_sec()
                 print("time: ", msg.header.stamp.to_sec())
                 odomControlCount += 1
                 noiseProp.addOdomMessage(msg)
@@ -106,15 +136,20 @@ if __name__=='__main__':
                 print("Particles: ", particles)
                 noiseProp = NoisePropagation(particles, state_lock)
                 print("initalpose")
-            elif topic == "/vesc/sensors/core" and noiseProp is not None and kineControlVelCount < 20:
-                kineControlVelCount += 1
-                noiseProp.addKineVelMessage(msg)
-                print(topic)
-            elif topic == "/vesc/sensors/servo_position_command" and noiseProp is not None and kineControlServCount < 20:
+            elif topic == "/vesc/sensors/core" and noiseProp is not None and kineControlVelCount < stepSize:
+                kineNowSec = msg.header.stamp.to_sec()
+                if  kineNowSec - kineLastSec > kineTimeStep:
+                    kineLastSec = msg.header.stamp.to_sec()
+                    kineControlVelCount += 1
+                    noiseProp.addKineVelMessage(msg)
+
+            elif topic == "/vesc/sensors/servo_position_command" and noiseProp is not None and kineControlServCount < stepSize\
+            and  kineNowSec - kineLastSec > kineTimeStep:
                 kineControlServCount += 1
                 noiseProp.addKineServMessage(msg)
                 print(topic)
     finally:
         bag.close()
     #noiseProp.applyOdomModel()
-    noiseProp.plotOdomParticles()
+    #noiseProp.plotOdomParticles()
+    noiseProp.plotKineParticles()
