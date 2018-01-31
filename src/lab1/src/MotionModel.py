@@ -49,10 +49,10 @@ class KinematicMotionModel:
         self.state_lock = state_lock or Lock()
 
         # config
-        self.SPEED_TO_ERPM_OFFSET = float(rospy.get_param("/vesc/speed_to_erpm_offset")) # Offset conversion param from rpm to speed
-        self.SPEED_TO_ERPM_GAIN   = float(rospy.get_param("/vesc/speed_to_erpm_gain"))   # Gain conversion param from rpm to speed
-        self.STEERING_TO_SERVO_OFFSET = float(rospy.get_param("/vesc/steering_angle_to_servo_offset")) # Offset conversion param from servo position to steering angle
-        self.STEERING_TO_SERVO_GAIN   = float(rospy.get_param("/vesc/steering_angle_to_servo_gain")) # Gain conversion param from servo position to steering angle
+        self.SPEED_TO_ERPM_OFFSET = 0.0#float(rospy.get_param("/vesc/speed_to_erpm_offset")) # Offset conversion param from rpm to speed
+        self.SPEED_TO_ERPM_GAIN   = 4614.0#float(rospy.get_param("/vesc/speed_to_erpm_gain"))   # Gain conversion param from rpm to speed
+        self.STEERING_TO_SERVO_OFFSET = 0.5304#float(rospy.get_param("/vesc/steering_angle_to_servo_offset")) # Offset conversion param from servo position to steering angle
+        self.STEERING_TO_SERVO_GAIN   = -1.2135#float(rospy.get_param("/vesc/steering_angle_to_servo_gain")) # Gain conversion param from servo position to steering angle
 
         # This subscriber just caches the most recent servo position command
         self.servo_pos_sub = rospy.Subscriber(rospy.get_param("~servo_pos_topic", "/vesc/sensors/servo_position_command"), Float64,self.servo_cb, queue_size=1)

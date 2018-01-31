@@ -13,7 +13,9 @@ class InternalOdometryMotionModel:
     def __init__(self, particles, initial_pose, noise_params=None):
         self.last_pose = initial_pose
         self.particles = particles
-        self.noise_params = np_array_or(noise_params, np.array([[1E-20, 1E-20], [1E-20, 1E-20], [1E-20, 1E-20]]))#np.array([[0.1, 0.03], [0.1, 0.03], [0.3, 0.03]]))
+        #self.noise_params = np_array_or(noise_params,np.array([[0.1, 0.03], [0.1, 0.03], [0.3, 0.03]]))
+        self.noise_params = np_array_or(noise_params,np.array([[0.0, 0.3], [0.0, 0.3], [0.0, 0.3]]))
+
 
     def update(self, pose):
         # find delta between last pose in odometry-space
@@ -74,6 +76,8 @@ class InternalKinematicMotionModel:
         # get control params
         control_speeds = np.random.normal(0, abs(control[0] * self.noise_params[0][0]) + self.noise_params[0][1], size=num_particles) + control[0]
         control_steerings = np.random.normal(0, abs(control[1] * self.noise_params[1][0]) + self.noise_params[1][1], size=num_particles) + control[1]
+        #control_speeds = control[0]
+        #control_steerings = control[1]
         dt = control[2]
 
         # update thetas before xs and ys
