@@ -35,11 +35,17 @@ if __name__=="__main__":
         """
 
         resampler = ReSampler(particles, weights2, None, None)
-        while True:
+        resampler.resample_low_variance()
+        #resampler.resample_naiive()
+        plt.hist(particles, bins=np.arange(0, M, 10))
+        print('Variance: ', np.std(particles) ** 2)
+        plt.show()
+
+        #while True:
             #print(weights2)
 	    #plt.hist(weights2, bins=np.arange(0, 0.001, 0.00002))
-            plt.hist(particles, bins=np.arange(0, M, 10))
-            plt.show()
+            #plt.hist(particles, bins=np.arange(0, M, 10))
+            #plt.show()
             #print(np.sum(particles) / M)
-            resampler.resample_low_variance()
+            #resampler.resample_low_variance()
             #resampler.resample_naiive()
