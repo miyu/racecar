@@ -24,7 +24,7 @@ class OpenLoopRollout():
         self.particle_list_kin = np.array(particles)
         self.true_pose_list = None
         self.motionModel = OdometryMotionModel(particles, state_lock)
-        self.kinematic = KinematicMotionModel(particles, state_lock)
+        #self.kinematic = KinematicMotionModel(particles, state_lock)
 
     def apply_motion_model(self, msg):
         #print(msg)
@@ -60,8 +60,8 @@ class OpenLoopRollout():
 
         #print("Y: ", y)
 
-        #plt.plot(x,y)
-        plt.plot(x_kin, y_kin)
+        plt.plot(x,y)
+        #plt.plot(x_kin, y_kin)
         plt.plot(x_true, y_true)
         plt.show()
 
@@ -115,10 +115,10 @@ if __name__=='__main__':
                 y = msg.pose.position.y
 
                 oLR.add_true_pose(np.array([[x, y]]))
-            elif (topic == "/vesc/sensors/core" or topic == "/vesc/sensors/servo_position_command") and oLR is not None:
-                oLR.apply_kin_model(msg, topic)
-            elif 'offset' in topic:
-                print(topic)
+            #elif (topic == "/vesc/sensors/core" or topic == "/vesc/sensors/servo_position_command") and oLR is not None:
+            #    oLR.apply_kin_model(msg, topic)
+            #elif 'offset' in topic:
+            #    print(topic)
 
     finally:
         bag.close()
