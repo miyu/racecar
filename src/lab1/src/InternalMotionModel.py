@@ -13,7 +13,7 @@ class InternalOdometryMotionModel:
     def __init__(self, particles, initial_pose, noise_params=None):
         self.last_pose = initial_pose
         self.particles = particles
-        self.noise_params = np_array_or(noise_params, np.array([[0.1, 0.03], [0.1, 0.03], [0.3, 0.03]]))
+        self.noise_params = np_array_or(noise_params, np.array([[1E-20, 1E-20], [1E-20, 1E-20], [1E-20, 1E-20]]))#np.array([[0.1, 0.03], [0.1, 0.03], [0.3, 0.03]]))
 
     def update(self, pose):
         # find delta between last pose in odometry-space
@@ -27,7 +27,7 @@ class InternalOdometryMotionModel:
 
         # derive control parameters
         control = [local_relative_dx, local_relative_dy, dtheta]
-        print("ROBOT AT", x2, y2, "theta", theta2, "LR", local_relative_dx, local_relative_dy, dtheta)
+        #print("ROBOT AT", x2, y2, "theta", theta2, "LR", local_relative_dx, local_relative_dy, dtheta)
         self.apply_motion_model(self.particles, control)
 
     def apply_motion_model(self, proposal_dist, control):

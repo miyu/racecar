@@ -34,7 +34,7 @@ class OdometryMotionModel:
 
         x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
         theta = Utils.quaternion_to_angle(msg.pose.pose.orientation)
-        print("have", x, y, theta)
+        #print("have", x, y, theta)
         self.inner.update([x, y, theta])
 
         print_locks("Releasing lock motion_cb")
@@ -58,7 +58,7 @@ class KinematicMotionModel:
         self.servo_pos_sub = rospy.Subscriber(rospy.get_param("~servo_pos_topic", "/vesc/sensors/servo_position_command"), Float64,self.servo_cb, queue_size=1)
 
         #To get velocity
-        self.motion_vel_sub = rospy.Subscriber(rospy.get_param("~vel", "/vesc/sensors/core"), VescStateStamped, self.motion_cb)
+        #self.motion_vel_sub = rospy.Subscriber(rospy.get_param("~vel", "/vesc/sensors/core"), VescStateStamped, self.motion_cb)
 
         # init internal kinematic model
         particles = np_array_or(particles, np.array([[0, 0, 0]], dtype=np.float64))
