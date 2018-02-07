@@ -7,6 +7,15 @@ from scipy import signal
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 
+
+"""
+ Publish a filtered image from the given image data.
+ Currently, it filters out all except light blue colors.
+
+ sub_topic: where the original image is from
+ pub_topic: where to publish the new image to
+
+"""
 class ROI:
     def __init__(self, sub_topic, pub_topic):
         print("Subscribing to", sub_topic)
@@ -15,6 +24,12 @@ class ROI:
         self.pub = rospy.Publisher(pub_topic, Image, queue_size=10)
         self.sub = rospy.Subscriber(sub_topic, Image, self.apply_filter_cb)
         self.bridge = CvBridge()
+
+    """
+    A callback to remove all except some range of colors.
+
+    Assuming that msg is sensor_msgs/Image
+    """
     def apply_filter_cb(self, msg):
         cv_image = None
         try:
@@ -24,20 +39,23 @@ class ROI:
 
 
         cv_image = cv2.GaussianBlur(cv_image, (5,5), 0)
+
         hsv  = cv2.cvtColor(cv_image, cv2.COLOR_RGB2HSV)
 
-        #lower_blue = np.array([0, 150 ,  180 ])
-        #upper_blue = np.array([255,255, 255])
+        # To see the light blue
+        lower = np.array([35, 60 ,  150 ])
+        upper = np.array([150,255, 255])
 
-        lower_blue = np.array([0, 60 ,  140 ])
-        upper_blue = np.array([150,255, 180])
+        # To see the red tape
 
-
-        mask = cv2.inRange(hsv, lower_blue, upper_blue)
+        mask = cv2.inRange(hsv, lower, upper)
 
         res = cv2.bitwise_and(cv_image, cv_image, mask = mask)
         print("Publishing:")
         try:
+            res[:,:,0] = 0
+            res[:,:,1] = 0
+
             self.pub.publish(self.bridge.cv2_to_imgmsg(res, 'rgb8'))
         except CvBridgeError as e:
             print(e)
@@ -56,7 +74,7 @@ if __name__ == '__main__':
 	pub_topic = rospy.get_param('~pub_topic')
 
 
-	# Create a Filter object and pass it the loaded parameters
+	# Create a ROI object and pass it the loaded parameters
 	roi = ROI(sub_topic, pub_topic)
 
 	rospy.spin()
