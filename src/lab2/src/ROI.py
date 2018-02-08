@@ -40,11 +40,12 @@ class ROI:
 
         hsv  = cv2.cvtColor(cv_image, cv2.COLOR_RGB2HSV)
 
-        # To see the light blue
+        # To see the light blue tape
         lower = np.array([35, 60 ,  100 ])
         upper = np.array([150,255, 255])
 
-        # To see the red tape
+        # TODO: to see the red tape
+
 
         mask = cv2.inRange(hsv, lower, upper)
 
@@ -55,27 +56,17 @@ class ROI:
             res[:,:,0] = 0
             res[:,:,1] = 0
 
-
-            ROI = self.drawROI(res)
-
-            #edges = self.getEdges(ROI)
-
+            self.drawROI(res)
 
             self.pub.publish(self.bridge.cv2_to_imgmsg(res, 'rgb8'))
-            #self.pub.publish(self.bridge.cv2_to_imgmsg(edges))
-            #self.pub.publish(self.bridge.cv2_to_imgmsg(ROI))
         except CvBridgeError as e:
             print(e)
         print("DONE!")
 
 
     """
-        Get the edges of the image. Image is of type 8UC1
+        Draw out the ROI, and get the center
     """
-    def getEdges(self, img):
-        edges = cv2.Canny(img, 150, 200)
-        return edges
-
     def drawROI(self, img):
         height = None
         width = None
@@ -93,22 +84,22 @@ class ROI:
             #edges = self.getEdges(img)
 
         # Used to set the line of the ROI
-        bottomLineHeight = 10
-        topLineHeight = height/6
+        bottomLineHeight = height - 10
+        topLineHeight = height - height/6
 
         mask = np.zeros((height, width), dtype = 'uint8')
 
-        mask[(height - topLineHeight):(height - bottomLineHeight) ,:] = 1
+        mask[(topLineHeight):(bottomLineHeight) ,:] = 1
 
         ROIimg = cv2.bitwise_and(img ,img , mask = mask)
 
         gray = cv2.cvtColor(ROIimg, cv2.COLOR_RGB2GRAY)
-        gray = cv2.GaussianBlur(gray, (5,5), 0)
         thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)[1]
         cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
 
     	M = cv2.moments(cnts)
 
+        # If the tape is not within the ROI, then don't calculate moment
         if M["m00"] == 0:
             print("Not on top of tape")
 
@@ -117,9 +108,9 @@ class ROI:
             cY = int(M["m01"] / M["m00"])
             # draw the contour and center of the shape on the image
             cv2.circle(img, (cX, cY), 7, (255, 255, 255), -1)
-            cv2.line(img, (0,height-topLineHeight), (width,height-topLineHeight), color = (0, 255, 0))
-            cv2.line(img, (0,height-bottomLineHeight), (width, height-bottomLineHeight), color = (0, 255, 0))
-        return thresh
+            cv2.line(img, (0,topLineHeight), (width,topLineHeight), color = (0, 255, 0))
+            cv2.line(img, (0,bottomLineHeight), (width, bottomLineHeight), color = (0, 255, 0))
+
 
 if __name__ == '__main__':
 	sub_topic = None # The image topic to be subscribed to
