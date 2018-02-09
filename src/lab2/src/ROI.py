@@ -4,6 +4,7 @@ import numpy as np
 import cv2
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
+from PID import PID
 
 
 """
@@ -23,6 +24,9 @@ class ROI:
         self.sub = rospy.Subscriber(sub_topic, Image, self.apply_filter_cb)
         self.bridge = CvBridge()
 
+        self.error = 0.0
+        self.PID = PID()
+
     """
     A callback to remove all except some range of colors.
 
@@ -41,7 +45,7 @@ class ROI:
         hsv  = cv2.cvtColor(cv_image, cv2.COLOR_RGB2HSV)
 
         # To see the light blue tape
-        lower = np.array([35, 60 ,  100 ])
+        lower = np.array([70, 100 ,  100 ])
         upper = np.array([150,255, 255])
 
         # TODO: to see the red tape
@@ -62,6 +66,9 @@ class ROI:
         except CvBridgeError as e:
             print(e)
         print("DONE!")
+
+    def getError(self):
+        return self.error
 
 
     """
@@ -102,14 +109,22 @@ class ROI:
         # If the tape is not within the ROI, then don't calculate moment
         if M["m00"] == 0:
             print("Not on top of tape")
-
+            self.error = 0.0
         else:
             cX = int(M["m10"] / M["m00"])
             cY = int(M["m01"] / M["m00"])
             # draw the contour and center of the shape on the image
             cv2.circle(img, (cX, cY), 7, (255, 255, 255), -1)
-            cv2.line(img, (0,topLineHeight), (width,topLineHeight), color = (0, 255, 0))
-            cv2.line(img, (0,bottomLineHeight), (width, bottomLineHeight), color = (0, 255, 0))
+            self.error = float(width/2.0 - float(cX))
+            print('Cx: ', float(cX))
+            print('Center:', width/2.0)
+
+        # negative error, turn right... hopefully
+        control = self.PID.calc_control(self.error)
+        self.PID.drive(control)
+
+        cv2.line(img, (0,topLineHeight), (width,topLineHeight), color = (0, 255, 0))
+        cv2.line(img, (0,bottomLineHeight), (width, bottomLineHeight), color = (0, 255, 0))
 
 
 if __name__ == '__main__':
