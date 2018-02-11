@@ -27,6 +27,8 @@ class ROI:
         self.error = 0.0
         self.PID = PID()
 
+
+
     """
     A callback to remove all except some range of colors.
 
@@ -39,22 +41,29 @@ class ROI:
         except CvBridgeError as e:
             print(e)
 
-
+        width, height = cv.GetSize(cv_image)
+        print(width, height)
         cv_image = cv2.GaussianBlur(cv_image, (3,3), 0)
 
         hsv  = cv2.cvtColor(cv_image, cv2.COLOR_RGB2HSV)
 
         # To see the light blue tape
-        lower = np.array([70, 100 ,  100 ])
-        upper = np.array([150,255, 255])
+        lower = np.array([70, 100, 100])
+        upper = np.array([150, 255, 255])
 
-        # TODO: to see the red tape
-
+        # TODO: CHECK WORKS, To see the red tape
+        lower_l = np.array([0, 100, 100])
+        lower_h = np.array([10, 255, 255])
+        higher_l = np.array([170, 100, 100])
+        higher_r = np.array([179, 255, 255])
+        mask_rl = cv2.inRange(hsv, lower_l, lower_h)
+        mask_rh = cv2.inRange(hsv, higher_l, higher_r)
+        mask_r = cv2.addWeighted(mask_rl, 1, mask_rh, 1)
 
         mask = cv2.inRange(hsv, lower, upper)
 
         res = cv2.bitwise_and(cv_image, cv_image, mask = mask)
-
+        print("shape is ", res.shape)
         print("Publishing:")
         try:
             res[:,:,0] = 0
@@ -105,7 +114,7 @@ class ROI:
         cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
 
     	M = cv2.moments(cnts)
-
+        print("M is ", M)
         # If the tape is not within the ROI, then don't calculate moment
         if M["m00"] == 0:
             print("Not on top of tape")
