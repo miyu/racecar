@@ -14,42 +14,43 @@ class ROI:
 
     def show(self, img):
         cv2.imshow('stuff', img)
-        cv2.waitKey()
-    
+        k = cv2.waitKey()
+        if k == 27:
+            return
+
     """
     A callback to remove all except some range of colors.
     """
     def apply_filter_cb(self):
         #cv_image = cv2.imread('arc.jpg', 1)
-        cv_image = cv2.imread('111.jpg', 1)
+        cv_image = cv2.imread('arc.jpg', 1)
         assert cv_image is not None
 
         self.show(cv_image)
         cv_image = cv2.GaussianBlur(cv_image, (3,3), 0)
-
-        hsv  = cv2.cvtColor(cv_image, cv2.COLOR_RGB2HSV)
-
+        hsv  = cv2.cvtColor(cv_image, cv2.COLOR_BGR2HSV)
+        print(hsv)
         # To see the light blue tape
-        lower = np.array([70, 100 ,  100 ])
-        upper = np.array([150,255, 255])
+        # upper = np.array([150,255, 255])
+        # lower = np.array([70, 100, 100 ])
 
-        # TODO: to see the red tape
-        
-        lower_l = np.array([0, 100, 100])
-        lower_h = np.array([20, 255, 255])
+        # To see the red tape
+
+        #lower_l = np.array([0, 100, 100])
+        #lower_h = np.array([20, 255, 255])
         higher_l = np.array([170, 100, 100])
         higher_r = np.array([179, 255, 255])
-        mask = cv2.inRange(hsv, lower_l, lower_h)
-        #mask_rh = cv2.inRange(hsv, higher_l, higher_r)
-        #mask_r = cv2.addWeighted(mask_rl, 1.0, mask_rh, 1.0, 0.0)
+        #mask_rl = cv2.inRange(hsv, lower_l, lower_h)
+        mask = cv2.inRange(hsv, higher_l, higher_r)
 
 
-        #mask = mask_rh#cv2.inRange(hsv, lower, upper)
-
+        #mask = cv2.inRange(hsv, lower, upper)
+        print("mask " , mask.shape)
         res = cv2.bitwise_and(cv_image, cv_image, mask = mask)
-        
-        res[:,:,0] = 0
-        res[:,:,1] = 0
+        print(res)
+        print("res ", res.shape)
+        # res[:,:,0] = 0
+        # res[:,:,1] = 0
 
         self.drawROI(res)
 
@@ -65,7 +66,7 @@ class ROI:
         channels = 1
 
         edges = None
-        
+
         if len(img.shape) == 2:
             height, width = img.shape
             #edges = img.copy()
@@ -74,16 +75,14 @@ class ROI:
 
             #edges = self.getEdges(img)
 
-        # Used to set the line of the ROI
+        # Used to set the lines of the ROI
         bottomLineHeight = int(height - 10)
         topLineHeight = int(height - height/6)
 
+        # Mask img for ROI
         mask = np.zeros((height, width), dtype = 'uint8')
-
-        print(mask.shape)
         mask[(topLineHeight):(bottomLineHeight) ,:] = 1
-
-        ROIimg = cv2.bitwise_and(img ,img , mask = mask)
+        ROIimg = cv2.bitwise_and(img , img , mask = mask)
 
         gray = cv2.cvtColor(ROIimg, cv2.COLOR_RGB2GRAY)
         thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)[1]
@@ -106,7 +105,7 @@ class ROI:
 
         cv2.line(img, (0,topLineHeight), (width,topLineHeight), color = (0, 255, 0))
         cv2.line(img, (0,bottomLineHeight), (width, bottomLineHeight), color = (0, 255, 0))
-        
+
         self.show(img)
 
 if __name__ == '__main__':

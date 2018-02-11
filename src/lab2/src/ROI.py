@@ -41,8 +41,6 @@ class ROI:
         except CvBridgeError as e:
             print(e)
 
-        width, height = cv.GetSize(cv_image)
-        print(width, height)
         cv_image = cv2.GaussianBlur(cv_image, (3,3), 0)
 
         hsv  = cv2.cvtColor(cv_image, cv2.COLOR_RGB2HSV)
@@ -53,26 +51,26 @@ class ROI:
         mask_b = cv2.inRange(hsv, lower, upper)
 
         # To see the red tape
-        #lower_l = np.array([0, 100, 100])
-        #lower_h = np.array([20, 255, 255])
-        higher_l = np.array([170, 100, 100])
-        higher_r = np.array([179, 255, 255])
-        #mask_rl = cv2.inRange(hsv, lower_l, lower_h)
-        mask_r = cv2.inRange(hsv, higher_l, higher_r)
-        #mask_r = cv2.addWeighted(mask_rl, 1.0, mask_rh, 1.0)
+        # lower_l = np.array([0, 100, 100])
+        # lower_h = np.array([20, 255, 255])
+        # higher_l = np.array([170, 100, 100])
+        # higher_r = np.array([179, 255, 255])
+        # mask_rl = cv2.inRange(hsv, lower_l, lower_h)
+        # mask_r = cv2.inRange(hsv, higher_l, higher_r)
+        # mask_r = cv2.addWeighted(mask_rl, 1.0, mask_rh, 1.0)
 
-        mask = cv2.inRange(hsv, lower, upper)
+        mask = mask_b
 
         res = cv2.bitwise_and(cv_image, cv_image, mask = mask)
-        print("shape is ", res.shape)
-        print("Publishing:")
+        #print("shape is ", res.shape)
+        #print("Publishing:")
         try:
-            res[:,:,0] = 0
-            res[:,:,1] = 0
-
+            # res[:,:,0] = 0
+            # res[:,:,1] = 0
+            print("shape is ", res.shape)
             self.drawROI(res)
 
-            self.pub.publish(self.bridge.cv2_to_imgmsg(res, 'rgb8'))
+            # self.pub.publish(self.bridge.cv2_to_imgmsg(res, 'rgb8'))
         except CvBridgeError as e:
             print(e)
         print("DONE!")
@@ -82,7 +80,7 @@ class ROI:
 
 
     """
-        Draw out the ROI, and get the center
+        Draw out thecv2.inRange(hsv, lower, upper) ROI, and get the center
     """
     def drawROI(self, img):
         height = None
@@ -100,14 +98,13 @@ class ROI:
 
             #edges = self.getEdges(img)
 
-        # Used to set the line of the ROI
+        # Used to set the lines of the ROI
         bottomLineHeight = height - 10
         topLineHeight = height - height/6
 
+        # Mask img for ROI
         mask = np.zeros((height, width), dtype = 'uint8')
-
         mask[(topLineHeight):(bottomLineHeight) ,:] = 1
-
         ROIimg = cv2.bitwise_and(img ,img , mask = mask)
 
         gray = cv2.cvtColor(ROIimg, cv2.COLOR_RGB2GRAY)
@@ -115,7 +112,7 @@ class ROI:
         cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
 
     	M = cv2.moments(cnts)
-        print("M is ", M)
+        #print("M is ", M)
         # If the tape is not within the ROI, then don't calculate moment
         if M["m00"] == 0:
             print("Not on top of tape")
