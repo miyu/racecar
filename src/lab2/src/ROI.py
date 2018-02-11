@@ -50,15 +50,16 @@ class ROI:
         # To see the light blue tape
         lower = np.array([70, 100, 100])
         upper = np.array([150, 255, 255])
+        mask_b = cv2.inRange(hsv, lower, upper)
 
-        # TODO: CHECK WORKS, To see the red tape
-        lower_l = np.array([0, 100, 100])
-        lower_h = np.array([10, 255, 255])
+        # To see the red tape
+        #lower_l = np.array([0, 100, 100])
+        #lower_h = np.array([20, 255, 255])
         higher_l = np.array([170, 100, 100])
         higher_r = np.array([179, 255, 255])
-        mask_rl = cv2.inRange(hsv, lower_l, lower_h)
-        mask_rh = cv2.inRange(hsv, higher_l, higher_r)
-        mask_r = cv2.addWeighted(mask_rl, 1, mask_rh, 1)
+        #mask_rl = cv2.inRange(hsv, lower_l, lower_h)
+        mask_r = cv2.inRange(hsv, higher_l, higher_r)
+        #mask_r = cv2.addWeighted(mask_rl, 1.0, mask_rh, 1.0)
 
         mask = cv2.inRange(hsv, lower, upper)
 
