@@ -70,7 +70,7 @@ class ROI:
             print("shape is ", res.shape)
             self.drawROI(res)
 
-            # self.pub.publish(self.bridge.cv2_to_imgmsg(res, 'rgb8'))
+            self.pub.publish(self.bridge.cv2_to_imgmsg(res, 'rgb8'))
         except CvBridgeError as e:
             print(e)
         print("DONE!")

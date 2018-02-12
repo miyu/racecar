@@ -74,10 +74,10 @@ class InternalKinematicMotionModel:
         num_particles = self.particles.shape[0]
 
         # get control params
-        # control_speeds = np.random.normal(0, abs(control[0] * self.noise_params[0][0]) + self.noise_params[0][1], size=num_particles) + control[0]
-        # control_steerings = np.random.normal(0, abs(control[1] * self.noise_params[1][0]) + self.noise_params[1][1], size=num_particles) + control[1]
-        control_steerings = control[1]
-        control_speeds = control[0]
+        control_speeds = np.random.normal(0, abs(control[0] * self.noise_params[0][0]) + self.noise_params[0][1], size=num_particles) + control[0]
+        control_steerings = np.random.normal(0, abs(control[1] * self.noise_params[1][0]) + self.noise_params[1][1], size=num_particles) + control[1]
+        #control_steerings = control[1]
+        #control_speeds = control[0]
         dt = control[2]
 
         # update thetas before xs and ys
