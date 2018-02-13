@@ -18,7 +18,7 @@ import time
 
 FILTER_SIZE = (480,640)
 
-IS_ON_ROBOT = False
+IS_ON_ROBOT = True
 IS_GENERATE_RUN = False
 SHOW_TEMPLATES = False
 camera_fov_horizontal = 68 * (math.pi / 180.0)
@@ -185,7 +185,7 @@ def compute_templates():
     else:#except (OSError, IOError) as e:
         if not IS_GENERATE_RUN:
             raise "couldn't find template and controls file"
-        
+
         template_and_controls = [] # array of (image, steering | None)
         for steering in np.arange(-0.28, 0.281, 0.02): # arange is exclusive
             rollout = generate_rollout(steering)
@@ -196,19 +196,19 @@ def compute_templates():
             pixels = camera_to_pixels(camera_particles)
             assert np.max(pixels[:,0]) < FILTER_SIZE[1]
             assert np.max(pixels[:,1]) < FILTER_SIZE[0]
-            
+
             if SHOW_TEMPLATES:
                 print('Pixels before discretization', pixels)
 
             #pixels[:,0] = normalize(pixels[:,0]) * (FILTER_SIZE[1] - 1)
             #pixels[:,1] = normalize(pixels[:,1])  * (FILTER_SIZE[0] - 1)
-            
+
             #pixels[:,0] += np.absolute(np.min(pixels[:,0]))
             #pixels[:,1] += np.absolute(np.min(pixels[:,1]))
 
             pixels = pixels.astype(int) # Cast to int array
             pixels = pixels[:, 0:2]
-            
+
             if SHOW_TEMPLATES:
                 print('Pixels after discretization', pixels)
 
@@ -229,12 +229,13 @@ def compute_templates():
         return template_and_controls
 
 class TemplateMatcher:
-    def __init__(self, sub_topic, pub_topic):
+    def __init__(self, sub_topic, pub_topic, red):
         print("Subscribing to", sub_topic)
         print("Publishing to", pub_topic)
 
         self.processed = False
         self.templates = compute_templates()
+        self.red = red
 
         #self.K_sub = rospy.Subscriber("/camera/color/camera_info", CameraInfo, self.get_K)
         #while self.templates is None:
@@ -280,6 +281,8 @@ class TemplateMatcher:
         if M["m00"] == 0:
             print("Not on top of tape")
             self.error = 0.0
+            cX = np.random.randint(0, 640)
+            cY = np.random.randint(0, 480)
         else:
             cX = int(M["m10"] / M["m00"])
             cY = int(M["m01"] / M["m00"])
@@ -311,15 +314,17 @@ class TemplateMatcher:
             template, steering = self.templates[i]
             assert steering is not None
             #self.pub.publish(self.bridge.cv2_to_imgmsg(template))
-            overlayed_image = cv2.addWeighted(template, alpha, gray_plane, 1.0 - alpha, 0.0)
-            assert overlayed_image is not None
-            self.show(overlayed_image)
+            if not IS_ON_ROBOT:
+                overlayed_image = cv2.addWeighted(template, alpha, gray_plane, 1.0 - alpha, 0.0)
+                assert overlayed_image is not None
+                self.show(overlayed_image)
 
             center_template_X, center_template_Y = self.COM(template)
+
             overlap = np.sum(gray_plane * template)
             centroid_error = (center_img_X - center_template_X) ** 2 + (center_img_Y - center_template_Y) ** 2
 
-            score = overlap#-centroid_error
+            score = -centroid_error#overlap
             #if steering is None:
                 #score /= 100.0
             # else:
@@ -404,10 +409,18 @@ class TemplateMatcher:
         #######################
         # Known good blue is hue (0-360): 166-187, but cv divides range by 2
         if IS_ON_ROBOT:
-            lower = np.array([(166 - 20) / 2, 100, 100], np.uint8)
-            upper = np.array([(187 + 20) / 2, 255, 255], np.uint8)
-            mask_b = cv2.inRange(hsv, lower, upper)
-            mask = mask_b
+            if self.red:
+                higher_l = np.array([150, 100, 100], np.uint8) #THESE WORKED WITH CAMERA
+                higher_r = np.array([179, 255, 255], np.uint8)
+                mask_r = cv2.inRange(hsv, higher_l, higher_r)
+                mask = mask_r
+            else:
+                #lower = np.array([(166 - 20) / 2, 100, 100], np.uint8)
+                #upper = np.array([(187 + 20) / 2, 255, 255], np.uint8)
+                lower = np.array([90, 120, 100], np.uint8)
+                upper = np.array([100, 255, 255], np.uint8)
+                mask_b = cv2.inRange(hsv, lower, upper)
+                mask = mask_b
         else:
             lower_l = np.array([0, 100, 100])
             lower_h = np.array([20, 255, 255])
@@ -510,7 +523,7 @@ if __name__ == '__main__':
         sub_topic = rospy.get_param('~sub_topic')
         pub_topic = rospy.get_param('~pub_topic')
 
-    t = TemplateMatcher(sub_topic, pub_topic)
+    t = TemplateMatcher(sub_topic, pub_topic, red=True) # red = True: track red tape, red = False: track blue
 
     if IS_ON_ROBOT:
         rospy.spin()
