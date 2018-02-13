@@ -18,9 +18,9 @@ import time
 
 FILTER_SIZE = (480,640)
 
-IS_ON_ROBOT = True
+IS_ON_ROBOT = False
 IS_GENERATE_RUN = False
-SHOW_TEMPLATES = False
+SHOW_TEMPLATES = True
 camera_fov_horizontal = 68 * (math.pi / 180.0)
 camera_fov_vertical = 41 * (math.pi / 180.0)
 camera_downward_tilt_angle = 0.0 * (math.pi / 180.0) # should be negative if looking down
@@ -43,9 +43,9 @@ camera_downward_tilt_angle = 0.0 * (math.pi / 180.0) # should be negative if loo
 
 #first row (new X) was [0., -1., 0., -0.0262 + 0.03]
 Transform = np.array([
-    [0., -1., 0., -0.0262 + 0.03], # I will add to -0.0262 to center the template. ******* This might be incorrect to do **********
+    [0., -1., 0., -0.0262], # I will add to -0.0262 to center the template. ******* This might be incorrect to do **********
     [0., 0., 1., 0.198],
-    [-1., 0., 0., -0.254 - 0.28],
+    [-1., 0., 0., -0.254 + 0.166],#0.1016],
     [0., 0., 0., 1.]])
 
 K = np.array([[615.9346313476562, 0.0, 327.43603515625],
@@ -96,7 +96,7 @@ def compute_templates():
         #print(particles)
         mm = InternalKinematicMotionModel((particles) , np.array([[0.0, 0.07], [0.0, 0.07]]))
         speed, dt = 1.0, 0.005
-        rollout_meters = 1.3
+        rollout_meters = 1.0
         rollout_particles = np.zeros((0, 3), dtype=float)
         for i in range(int(rollout_meters / (speed * dt))):
             mm.update([speed, steering, dt])
@@ -173,8 +173,8 @@ def compute_templates():
 
     path = "/home/nvidia/our_catkin_ws/src/lab1/src/template_and_controls.pickle"
     if not IS_ON_ROBOT:
-        path = "C:/Users/Ananth/Documents/Winter Quarter 2018/CSE 490R/P2 Test/template_and_controls.pickle" # This path is for my laptop
-        #path = "/home/allenc97/catkin_ws/src/lab1/src/template_and_controls.pickle"
+        #path = "C:/Users/Ananth/Documents/Winter Quarter 2018/CSE 490R/P2 Test/template_and_controls.pickle" # This path is for my laptop
+        path = "/home/allenc97/catkin_ws/src/lab1/src/template_and_controls.pickle"
 
     import pickle
     if IS_ON_ROBOT or not IS_GENERATE_RUN:
@@ -236,6 +236,7 @@ class TemplateMatcher:
         self.processed = False
         self.templates = compute_templates()
         self.red = red
+        self.last_command = None
 
         #self.K_sub = rospy.Subscriber("/camera/color/camera_info", CameraInfo, self.get_K)
         #while self.templates is None:
@@ -308,8 +309,8 @@ class TemplateMatcher:
 
         gray_plane = img
         #self.show(gray_plane)
-        center_img_X, center_img_Y = self.COM(gray_plane)
-        print(center_img_X, center_img_Y)
+        #center_img_X, center_img_Y = self.COM(gray_plane)
+        #print(center_img_X, center_img_Y)
         for i in range(len(self.templates)):
             template, steering = self.templates[i]
             assert steering is not None
@@ -319,12 +320,12 @@ class TemplateMatcher:
                 assert overlayed_image is not None
                 self.show(overlayed_image)
 
-            center_template_X, center_template_Y = self.COM(template)
+            #center_template_X, center_template_Y = self.COM(template)
 
             overlap = np.sum(gray_plane * template)
-            centroid_error = (center_img_X - center_template_X) ** 2 + (center_img_Y - center_template_Y) ** 2
+            #centroid_error = (center_img_X - center_template_X) ** 2 + (center_img_Y - center_template_Y) ** 2
 
-            score = -centroid_error#overlap
+            score = overlap#-centroid_error
             #if steering is None:
                 #score /= 100.0
             # else:
@@ -341,7 +342,7 @@ class TemplateMatcher:
 
         if best_template is not None and index > -1:
             #self.show(best_template)
-            self.COM(best_template)
+            #self.COM(best_template)
             best_overlay = cv2.addWeighted(best_template, alpha, gray_plane, 1.0 - alpha, 0.0)
             if IS_ON_ROBOT:
                 self.pub.publish(self.bridge.cv2_to_imgmsg(best_overlay))
@@ -350,10 +351,17 @@ class TemplateMatcher:
 
             if IS_ON_ROBOT:
                 template, steering = self.templates[index]
-                if steering is None:
-                    self.drive(forward_velocity=-0.3, steering_angle=0.0, dt=0.005)
-                else:
-                    self.drive(forward_velocity=0.3, steering_angle=steering, dt=0.005)
+                if steering is not None:
+                    if steering > 0.2:
+                        self.drive(forward_velocity=0.3, steering_angle=steering, dt=0.005)
+                        self.drive(forward_velocity=0.3, steering_angle=steering, dt=0.005)
+                        self.drive(forward_velocity=0.3, steering_angle=steering, dt=0.005)
+                    else:
+                        self.drive(forward_velocity=0.3, steering_angle=steering, dt=0.005)
+                    self.last_command = steering
+        else:
+            if self.last_command is not None:
+                self.drive(forward_velocity=0.3, steering_angle=self.last_command, dt=0.005)
 
         end_time = time.time()
 
@@ -380,8 +388,8 @@ class TemplateMatcher:
             hsv = cv2.cvtColor(cv_image, cv2.COLOR_RGB2HSV)
 
         else:
-            #image_path = '/home/allenc97/catkin_ws/src/lab1/src/111.jpg'
-            image_path = 'C:/Users/Ananth/Documents/Winter Quarter 2018/CSE 490R/P2 Test/arc.jpg'
+            image_path = '/home/allenc97/catkin_ws/src/lab1/src/111.jpg'
+            #image_path = 'C:/Users/Ananth/Documents/Winter Quarter 2018/CSE 490R/P2 Test/arc.jpg'
             cv_image = cv2.imread(image_path, 1)
             cv_image = cv2.resize(cv_image, (640, 480))
 
