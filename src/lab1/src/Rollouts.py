@@ -18,8 +18,8 @@ import time
 
 FILTER_SIZE = (480,640)
 
-IS_ON_ROBOT = False
-IS_GENERATE_RUN = True
+IS_ON_ROBOT = True
+IS_GENERATE_RUN = False
 SHOW_TEMPLATES = False
 camera_fov_horizontal = 68 * (math.pi / 180.0)
 camera_fov_vertical = 41 * (math.pi / 180.0)
@@ -244,9 +244,9 @@ class TemplateMatcher:
         # If the tape is not within the ROI, then don't calculate moment
         if M["m00"] == 0:
             print("Not on top of tape")
-            self.error = 0.0
-            cX = np.random.randint(0, 640)
-            cY = np.random.randint(0, 480)
+            #self.error = 0.0
+            cX = None
+            cY = None
         else:
             cX = int(M["m10"] / M["m00"])
             cY = int(M["m01"] / M["m00"])
@@ -273,7 +273,6 @@ class TemplateMatcher:
         #self.drawROI(img)
         gray_plane = img
         #self.show(gray_plane)
-        #center_img_X, center_img_Y = self.COM(gray_plane)
         #print(center_img_X, center_img_Y)
         for i in range(len(self.templates)):
             template, steering = self.templates[i]
@@ -283,8 +282,6 @@ class TemplateMatcher:
                 overlayed_image = cv2.addWeighted(template, alpha, gray_plane, 1.0 - alpha, 0.0)
                 assert overlayed_image is not None
                 self.show(overlayed_image)
-
-            #center_template_X, center_template_Y = self.COM(template)
 
             #overlap = np.sum(gray_plane[:, 240:480] * template[:, 240:480])
             overlap = np.sum(gray_plane * template)
@@ -298,6 +295,7 @@ class TemplateMatcher:
             #     if -0.245 <= steering <= -0.235:
             #         score = float('inf')
 
+            #print('Score: ', score)
             if score > best_score:
                 best_template = template
                 best_score = score
@@ -305,9 +303,8 @@ class TemplateMatcher:
 
         template_picked_time = time.time()
 
-        if best_template is not None and index > -1:
-            #self.show(best_template)
-            #self.COM(best_template)
+        if best_score > 5.0:#if best_template is not None and index > -1:
+
             best_overlay = cv2.addWeighted(best_template, alpha, gray_plane, 1.0 - alpha, 0.0)
             if IS_ON_ROBOT:
                 self.pub.publish(self.bridge.cv2_to_imgmsg(best_overlay))
@@ -318,18 +315,39 @@ class TemplateMatcher:
                 template, steering = self.templates[index]
                 print('Best Template Steering: ', steering)
                 if steering is not None:
+
                     if abs(steering) > 0.15:
-                        self.drive(forward_velocity=0.5, steering_angle=steering, dt=0.005)
-                        self.drive(forward_velocity=0.5, steering_angle=steering, dt=0.005)
-                        self.drive(forward_velocity=0.5, steering_angle=steering, dt=0.005)
+                        center_template_X, center_template_Y = self.COM(best_template)
+                        center_img_X, center_img_Y = self.COM(gray_plane)
+                        if steering > 0.15:
+                            if 0 <= center_template_X <= 319 and 0 <= center_img_X <= 319:
+                                self.last_command = steering
+                                self.drive(forward_velocity=0.5, steering_angle=steering, dt=0.005)
+                        elif steering < -0.15:
+                            if 320 <= center_template_X <= 639 and 320 <= center_img_X <= 639:
+                                self.last_command = steering
+                                self.drive(forward_velocity=0.5, steering_angle=steering, dt=0.005)
+                        else:
+                            self.drive(forward_velocity=0.2, steering_angle=0.0, dt=0.005)
+
+                        # if self.last_command is not None and (steering / self.last_command < 0.0):
+                        #     self.drive(forward_velocity=-0.2, steering_angle=0.0, dt=0.005)
+                        #     #self.drive(forward_velocity=-0.5, steering_angle=0.0, dt=0.005)
+                        # else:
+                        #     self.drive(forward_velocity=0.3, steering_angle=steering, dt=0.005)
+                        #     #self.drive(forward_velocity=0.5, steering_angle=steering, dt=0.005)
+                        #     #self.drive(forward_velocity=0.5, steering_angle=steering, dt=0.005)
+                        #     self.last_command = steering
+                        # if center x and temp x in same half + steering belongs in that half, then override
+                        # otherwise just drive slow
                     else:
                         self.drive(forward_velocity=0.5, steering_angle=steering, dt=0.005)
-                        self.last_command = steering
+                        #self.last_command = steering
         else:
             print("Last command: ", self.last_command)
             print("out of options")
             if self.last_command is not None:
-                self.drive(forward_velocity=0.5, steering_angle=self.last_command*2.0, dt=0.005)
+                self.drive(forward_velocity=0.5, steering_angle=self.last_command, dt=0.005)
 
         #end_time = time.time()
 
