@@ -19,8 +19,8 @@ import time
 FILTER_SIZE = (480,640)
 
 IS_ON_ROBOT = False
-IS_GENERATE_RUN = False
-SHOW_TEMPLATES = True
+IS_GENERATE_RUN = True
+SHOW_TEMPLATES = False
 camera_fov_horizontal = 68 * (math.pi / 180.0)
 camera_fov_vertical = 41 * (math.pi / 180.0)
 camera_downward_tilt_angle = 0.0 * (math.pi / 180.0) # should be negative if looking down
@@ -43,9 +43,9 @@ camera_downward_tilt_angle = 0.0 * (math.pi / 180.0) # should be negative if loo
 
 #first row (new X) was [0., -1., 0., -0.0262 + 0.03]
 Transform = np.array([
-    [0., -1., 0., -0.0262], # I will add to -0.0262 to center the template. ******* This might be incorrect to do **********
+    [0., -1., 0., -0.0262 + 0.03], # I will add to -0.0262 to center the template. ******* This might be incorrect to do **********
     [0., 0., 1., 0.198],
-    [-1., 0., 0., -0.254 + 0.166],#0.1016],
+    [-1., 0., 0., -0.254 - 0.28],#0.1016],
     [0., 0., 0., 1.]])
 
 K = np.array([[615.9346313476562, 0.0, 327.43603515625],
@@ -93,10 +93,9 @@ def compute_templates():
         # simulate particles 1 meter forward
         nparticles = 1000
         particles = np.zeros((nparticles, 3), dtype=float)
-        #print(particles)
         mm = InternalKinematicMotionModel((particles) , np.array([[0.0, 0.07], [0.0, 0.07]]))
-        speed, dt = 1.0, 0.005
-        rollout_meters = 1.0
+        speed, dt = 0.5, 0.005
+        rollout_meters = 1.4#1.0
         rollout_particles = np.zeros((0, 3), dtype=float)
         for i in range(int(rollout_meters / (speed * dt))):
             mm.update([speed, steering, dt])
@@ -111,9 +110,7 @@ def compute_templates():
         world_particles[:, 1] = rollout_particles[:, 1]
         world_particles[:, 2] = rollout_particles[:, 2]
         world_particles[:, 3] = 1
-        #print("world particles : ", world_particles)
         camera_particles = Transform.dot(world_particles.T).T
-        #print('Camera particles: ', camera_particles)
         return camera_particles
 
     def camera_to_pixels(camera_particles):
@@ -121,41 +118,24 @@ def compute_templates():
         pixel_particles = np.zeros((num_camera_particles, 3))
         pixel_particles[:, 0] = camera_particles[:, 0] / camera_particles[:, 2]
         pixel_particles[:, 1] = camera_particles[:, 1] / camera_particles[:, 2]
-        #print(pixel_particles[pixel_particles[:,0] > 0].shape)
-        #print(pixel_particles[pixel_particles[:,1] > 0].shape)
         pixel_particles[:, 2] = 1.0
         pixels = K.dot(pixel_particles.T).T
         return pixels
-
-    def normalize(arr):
-        min_arr = np.min(arr)
-        max_arr = np.max(arr)
-        return (arr - min_arr) / (max_arr - min_arr)
 
     def render_pixels(pixels, steering):
         #print('Pixels: ', pixels)
         #clip_particles = camera_particles_to_clip(camera_particles)
         clip_particles = pixels
-        new_image = np.zeros(FILTER_SIZE, dtype=float)
+        new_image = np.zeros(FILTER_SIZE, dtype='uint8')
         base_weight = 0
         for i in range(len(clip_particles)):
-            #x = int((clip_particles[i][0] * 0.5 + 0.5) * FILTER_SIZE[1])
-            #y = int((clip_particles[i][1] * -0.5 + 0.5) * FILTER_SIZE[0])
             x = int(clip_particles[i][0])
             y = FILTER_SIZE[0] - 1 - int(clip_particles[i][1])
-            new_image[y][x] = 1.0
-
-
-        displayed_image = np.zeros(FILTER_SIZE, dtype='uint8')
-        for y in range(FILTER_SIZE[0]):
-            for x in range(FILTER_SIZE[1]):
-                displayed_image[y][x] = int(new_image[y][x] * 255)
-
-        #print('Image: ', displayed_image, 'Sum: ', np.sum(displayed_image))
+            new_image[y][x] = 255
 
         if SHOW_TEMPLATES:
             print('Steering in image: ', steering)
-            cv2.imshow('image', displayed_image)
+            cv2.imshow('image', new_image)
             while True:
                 k = cv2.waitKey()
                 if k == 27:
@@ -163,13 +143,13 @@ def compute_templates():
 
         if not IS_ON_ROBOT and not IS_GENERATE_RUN:
             #print("showing image", "steering", steering, "offset", offset)
-            cv2.imshow('image', displayed_image)
+            cv2.imshow('image', new_image)
             while True:
                 k = cv2.waitKey()
                 if k == 27:
                     break
 
-        return displayed_image
+        return new_image
 
     path = "/home/nvidia/our_catkin_ws/src/lab1/src/template_and_controls.pickle"
     if not IS_ON_ROBOT:
@@ -177,34 +157,24 @@ def compute_templates():
         path = "/home/allenc97/catkin_ws/src/lab1/src/template_and_controls.pickle"
 
     import pickle
-    if IS_ON_ROBOT or not IS_GENERATE_RUN:
+    if IS_ON_ROBOT:
         with open(path, "rb") as fd:
             template_and_controls = pickle.load(fd)
             print ("Happily deserialized ", path, len(template_and_controls), template_and_controls[0][0].shape)
             return template_and_controls
     else:#except (OSError, IOError) as e:
-        if not IS_GENERATE_RUN:
-            raise "couldn't find template and controls file"
+        # if not IS_GENERATE_RUN:
+        #     raise "couldn't find template and controls file"
 
         template_and_controls = [] # array of (image, steering | None)
         for steering in np.arange(-0.28, 0.281, 0.02): # arange is exclusive
             rollout = generate_rollout(steering)
-            #world_particles = rollout_particles_to_world(rollout)
-            #camera_particles = world_particles_to_camera(world_particles)
 
             camera_particles = rollout_to_camera(rollout)
             pixels = camera_to_pixels(camera_particles)
-            assert np.max(pixels[:,0]) < FILTER_SIZE[1]
-            assert np.max(pixels[:,1]) < FILTER_SIZE[0]
 
             if SHOW_TEMPLATES:
                 print('Pixels before discretization', pixels)
-
-            #pixels[:,0] = normalize(pixels[:,0]) * (FILTER_SIZE[1] - 1)
-            #pixels[:,1] = normalize(pixels[:,1])  * (FILTER_SIZE[0] - 1)
-
-            #pixels[:,0] += np.absolute(np.min(pixels[:,0]))
-            #pixels[:,1] += np.absolute(np.min(pixels[:,1]))
 
             pixels = pixels.astype(int) # Cast to int array
             pixels = pixels[:, 0:2]
@@ -215,13 +185,6 @@ def compute_templates():
             steering = -steering # For some reason, after transformation, the steering is flipped compared to the image
             template = render_pixels(pixels, steering)
             template_and_controls.append((template, steering))
-
-            # templates for if we moved back, then followed steering
-            # for meters_backwards in np.arange(0.10, 0.201, 0.1):
-            #     print("Meters backwards", meters_backwards)
-            #     offset = -meters_backwards
-            #     template = render_camera_particles_bitmap(offset_z(camera_particles, offset), steering, offset)
-            #     template_and_controls.append((template, None))
 
         with open(path, "wb") as fd:
             pickle.dump(template_and_controls, fd)
@@ -298,7 +261,7 @@ class TemplateMatcher:
 
     def pick_template(self, img):
         start_time = time.time()
-        best_score = float("-inf")#0
+        best_score = 3.0
         best_template = None
         overlayed_image = None
         index = -1
@@ -307,6 +270,7 @@ class TemplateMatcher:
         # img should be grayscale, single plane
         assert len(img.shape) == 2
 
+        #self.drawROI(img)
         gray_plane = img
         #self.show(gray_plane)
         #center_img_X, center_img_Y = self.COM(gray_plane)
@@ -322,6 +286,7 @@ class TemplateMatcher:
 
             #center_template_X, center_template_Y = self.COM(template)
 
+            #overlap = np.sum(gray_plane[:, 240:480] * template[:, 240:480])
             overlap = np.sum(gray_plane * template)
             #centroid_error = (center_img_X - center_template_X) ** 2 + (center_img_Y - center_template_Y) ** 2
 
@@ -351,21 +316,24 @@ class TemplateMatcher:
 
             if IS_ON_ROBOT:
                 template, steering = self.templates[index]
+                print('Best Template Steering: ', steering)
                 if steering is not None:
-                    if steering > 0.2:
-                        self.drive(forward_velocity=0.3, steering_angle=steering, dt=0.005)
-                        self.drive(forward_velocity=0.3, steering_angle=steering, dt=0.005)
-                        self.drive(forward_velocity=0.3, steering_angle=steering, dt=0.005)
+                    if abs(steering) > 0.15:
+                        self.drive(forward_velocity=0.5, steering_angle=steering, dt=0.005)
+                        self.drive(forward_velocity=0.5, steering_angle=steering, dt=0.005)
+                        self.drive(forward_velocity=0.5, steering_angle=steering, dt=0.005)
                     else:
-                        self.drive(forward_velocity=0.3, steering_angle=steering, dt=0.005)
-                    self.last_command = steering
+                        self.drive(forward_velocity=0.5, steering_angle=steering, dt=0.005)
+                        self.last_command = steering
         else:
+            print("Last command: ", self.last_command)
+            print("out of options")
             if self.last_command is not None:
-                self.drive(forward_velocity=0.3, steering_angle=self.last_command, dt=0.005)
+                self.drive(forward_velocity=0.5, steering_angle=self.last_command*2.0, dt=0.005)
 
-        end_time = time.time()
+        #end_time = time.time()
 
-        print("pick_template", template_picked_time - start_time, "end", end_time - start_time, "best steering is", self.templates[index][1], "score", best_score)
+        #print("pick_template", template_picked_time - start_time, "end", end_time - start_time, "best steering is", self.templates[index][1], "score", best_score)
         #self.show(self.templates[best_template])
 
     """
@@ -381,11 +349,11 @@ class TemplateMatcher:
         cv_image = None
         if IS_ON_ROBOT:
             try:
-                cv_image = self.bridge.imgmsg_to_cv2(msg, 'rgb8')
+                cv_image = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
             except CvBridgeError as e:
                 print(e)
 
-            hsv = cv2.cvtColor(cv_image, cv2.COLOR_RGB2HSV)
+            hsv = cv2.cvtColor(cv_image, cv2.COLOR_BGR2HSV)
 
         else:
             image_path = '/home/allenc97/catkin_ws/src/lab1/src/111.jpg'
@@ -395,17 +363,17 @@ class TemplateMatcher:
 
             hsv = cv2.cvtColor(cv_image, cv2.COLOR_BGR2HSV)
 
-        image_decoded_time = time.time()
+        #image_decoded_time = time.time()
 
-        #cv_image = cv2.GaussianBlur(cv_image, (3,3), 0)
+        cv_image = cv2.GaussianBlur(cv_image, (3,3), 0)
 
-        hsv_time = time.time()
+        #hsv_time = time.time()
 
         # To see the red tape
-        #lower_l = np.array([0, 100, 100])
-        #lower_h = np.array([20, 255, 255])
-        # higher_l = np.array([120, 100, 100]) # THESE WORKED WITH IMAGES AT HOME
-        # higher_r = np.array([180, 255, 255])
+        lower_l = np.array([0, 70, 50])
+        lower_h = np.array([10, 255, 255])
+        higher_l = np.array([140, 80, 80]) # THESE WORKED WITH IMAGES AT HOME
+        higher_r = np.array([180, 255, 255])
 
         # #######################
         # # Known good red
@@ -416,101 +384,39 @@ class TemplateMatcher:
 
         #######################
         # Known good blue is hue (0-360): 166-187, but cv divides range by 2
-        if IS_ON_ROBOT:
-            if self.red:
-                higher_l = np.array([150, 100, 100], np.uint8) #THESE WORKED WITH CAMERA
-                higher_r = np.array([179, 255, 255], np.uint8)
-                mask_r = cv2.inRange(hsv, higher_l, higher_r)
-                mask = mask_r
-            else:
-                #lower = np.array([(166 - 20) / 2, 100, 100], np.uint8)
-                #upper = np.array([(187 + 20) / 2, 255, 255], np.uint8)
-                lower = np.array([90, 120, 100], np.uint8)
-                upper = np.array([100, 255, 255], np.uint8)
-                mask_b = cv2.inRange(hsv, lower, upper)
-                mask = mask_b
-        else:
-            lower_l = np.array([0, 100, 100])
-            lower_h = np.array([20, 255, 255])
-            higher_l = np.array([120, 100, 100]) # THESE WORKED WITH IMAGES AT HOME
-            higher_r = np.array([180, 255, 255])
-            mask_r = cv2.inRange(hsv, higher_l, higher_r)
-            mask = mask_r
+        # if IS_ON_ROBOT:
+        #     if self.red:
+        #         higher_l = np.array([150, 100, 100], np.uint8) #THESE WORKED WITH CAMERA
+        #         higher_r = np.array([179, 255, 255], np.uint8)
+        #         mask_r = cv2.inRange(hsv, higher_l, higher_r)
+        #         mask = mask_r
+        #     else:
+        #         #lower = np.array([(166 - 20) / 2, 100, 100], np.uint8)
+        #         #upper = np.array([(187 + 20) / 2, 255, 255], np.uint8)
+        #         lower = np.array([90, 120, 100], np.uint8)
+        #         upper = np.array([100, 255, 255], np.uint8)
+        #         mask_b = cv2.inRange(hsv, lower, upper)
+        #         mask = mask_b
+        # else:
+        #     lower_l = np.array([0, 100, 100])
+        #     lower_h = np.array([20, 255, 255])
+        #     higher_l = np.array([120, 100, 100]) # THESE WORKED WITH IMAGES AT HOME
+        #     higher_r = np.array([180, 255, 255])
+        #     mask_r = cv2.inRange(hsv, higher_l, higher_r)
+        #     mask = mask_r
 
-        #mask_rl = cv2.inRange(hsv, lower_l, lower_h)
-        #mask_r = cv2.addWeighted(mask_rl, 1.0, mask_rh, 1.0, 0.0)
-        filtered_time = time.time()
+        mask_rl = cv2.inRange(hsv, lower_l, lower_h)
+        mask_rh = cv2.inRange(hsv, higher_l, higher_r)
+        mask_r = cv2.bitwise_or(mask_rl, mask_rh)
+        #filtered_time = time.time()
+        mask = mask_rh
 
         res = cv2.bitwise_and(cv_image, cv_image, mask = mask)
-        and_time = time.time()
-        #print("shape is ", res.shape)
-        #print("Publishing:")
+        #and_time = time.time()
 
-        # self.drawROI(res)
-        # try:
-        #     res[:,:,0] = 0
-        #     res[:,:,1] = 0
-        #     self.drawROI(res)
-        #     #self.pub.publish(self.bridge.cv2_to_imgmsg(res, 'rgb8'))
-        # except CvBridgeError as e:
-        #     print(e)
         self.pick_template(mask)
-        roi_drawn_time = time.time()
-
-
-        print("DONE! ", "IDT", image_decoded_time - start_time, "HSV", hsv_time - start_time, "Filtered", filtered_time - start_time, "And", and_time - start_time, "ROI", roi_drawn_time - start_time)
-
-    """
-        Draw out thecv2.inRange(hsv, lower, upper) ROI, and get the center
-    """
-    def drawROI(self, img):
-        height = None
-        width = None
-        channels = 1
-
-        edges = None
-
-
-        if len(img.shape) == 2:
-            height, width = img.shape
-            #edges = img.copy()
-        else:
-            height, width, channels  = img.shape
-
-            #edges = self.getEdges(img)
-
-        # Used to set the lines of the ROI
-        bottomLineHeight = int(height - 10)
-        topLineHeight = int(height - height/6)
-
-        # Mask img for ROI
-        mask = np.zeros((height, width), dtype = 'uint8')
-        mask[(topLineHeight):(bottomLineHeight) ,:] = 1
-        ROIimg = cv2.bitwise_and(img ,img , mask = mask)
-
-        #self.show(img)
-        #self.pub.publish(self.bridge.cv2_to_imgmsg(img, 'rgb8')) #UNCOMMENT THIS TO PUBLISH TO RVIZ
-
-        gray = cv2.cvtColor(ROIimg, cv2.COLOR_RGB2GRAY)
-        thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)[1]
-        cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
-
-        M = cv2.moments(cnts)
-        #print("M is ", M)
-        # If the tape is not within the ROI, then don't calculate moment
-        if M["m00"] == 0:
-            print("Not on top of tape")
-            self.error = 0.0
-        else:
-            cX = int(M["m10"] / M["m00"])
-            cY = int(M["m01"] / M["m00"])
-            # draw the contour and center of the shape on the image
-            cv2.circle(img, (cX, cY), 7, (255, 255, 255), -1)
-
-        cv2.line(img, (0,topLineHeight), (width,topLineHeight), color = (0, 255, 0))
-        cv2.line(img, (0,bottomLineHeight), (width, bottomLineHeight), color = (0, 255, 0))
-
-        #self.show(img)
+        #roi_drawn_time = time.time()
+        #print("DONE! ", "IDT", image_decoded_time - start_time, "HSV", hsv_time - start_time, "Filtered", filtered_time - start_time, "And", and_time - start_time, "ROI", roi_drawn_time - start_time)
 
     def drive(self, forward_velocity, steering_angle, dt):
         msg = AckermannDriveStamped()
@@ -536,5 +442,5 @@ if __name__ == '__main__':
     if IS_ON_ROBOT:
         rospy.spin()
     else:
-        compute_templates()
+        #compute_templates()
         t.apply_filter_cb(None)
