@@ -108,13 +108,15 @@ dt = np.diff(raw_datas[:,5])
 # as -pi < theta < pi, theta_dot can be > pi, so we have to handle those
 # cases to keep theta_dot also between -pi and pi
 
+# Information about the variables.
 # pose_dot[i, :]  = [x_dot, y_dot, theta_dot]
 # x_dot = x_{t} - x_{t-1}
 # y_dot = y_{t} - y_{t-1}
 # theta_dot = theta_{t} - theta_{t-1}
-x_dot = 0#raw_datas[0, 0]
-y_dot = 0#raw_datas[0, 1]
-theta_dot = 0# raw_datas[0, 2]
+
+x_dot = 0       #raw_datas[0, 0
+y_dot = 0       #raw_datas[0, 1]
+theta_dot = 0   # raw_datas[0, 2]
 pose_dot = np.array([[x_dot, y_dot, theta_dot]])
 
 dt = raw_datas[0,5]
@@ -141,11 +143,9 @@ pose_dot[gt,2] = pose_dot[gt,2] - 2*np.pi
 # your chosen smoother works as intended.
 # An example of what this may look like is in the homework document.
 
-
 # raw_datas = [ x, y, theta, v, delta, time]
 # x_datas[i,  :] = [x_dot, y_dot, theta_dot, sin(theta), cos(theta), v, delta, dt]
 # y_datas[i-1,:] = [x_dot, y_dot, theta_dot ]
-
 
 window_size = 9
 poly_len = 3
@@ -160,10 +160,27 @@ x_datas[:, 6] = scipy.signal.savgol_filter(raw_datas[:,4], window_size, poly_len
 
 #dt is calculated by the previous for-loop,
 
+
+#####
+# Plot the raw and filtered x_dot
+#####
 max_ind = 900
 plt.plot(raw_datas[0:max_ind,5] - raw_datas[0,5], pose_dot[0:max_ind,0] ,    \
         raw_datas[0:max_ind,5] - raw_datas[0,5], x_datas[0:max_ind,0] )
 plt.show()
+
+##############################################
+# Is there a better way to get y_datas?
+##############################################
+for i in range(len(raw_datas)-1):
+    x_dot = raw_datas[i+1, 0] - raw_datas[i, 0]
+    y_dot = raw_datas[i+1, 1] - raw_datas[i, 1]
+    theta_dot = raw_datas[i+1, 2] - raw_datas[i,2]
+    y_datas[i] = [x_dot, y_dot, theta_dot]
+
+y_datas[:, 0] = scipy.signal.savgol_filter(y_datas[:,0], window_size, poly_len)
+y_datas[:, 1] = scipy.signal.savgol_filter(y_datas[:,1], window_size, poly_len)
+y_datas[:, 2] = scipy.signal.savgol_filter(y_datas[:,2], window_size, poly_len)
 
 
 # Convince yourself that input/output values are not strange
