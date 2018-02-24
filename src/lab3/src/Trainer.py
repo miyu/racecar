@@ -7,10 +7,13 @@ import rosbag
 import numpy as np
 import scipy.signal
 import utils as Utils
+import random
 
 import torch
 import torch.utils.data
 from torch.autograd import Variable
+
+import matplotlib.pyplot as plt
 
 SPEED_TO_ERPM_OFFSET     = 0.0
 SPEED_TO_ERPM_GAIN       = 4614.0
@@ -101,11 +104,35 @@ y_datas = np.zeros( (raw_datas.shape[0], OUTPUT_SIZE) )
 dt = np.diff(raw_datas[:,5])
 
 # TODO
-# It is critical we properly handle theta-rollover: 
+# It is critical we properly handle theta-rollover:
 # as -pi < theta < pi, theta_dot can be > pi, so we have to handle those
 # cases to keep theta_dot also between -pi and pi
+
+# pose_dot[i, :]  = [x_dot, y_dot, theta_dot]
+# x_dot = x_{t} - x_{t-1}
+# y_dot = y_{t} - y_{t-1}
+# theta_dot = theta_{t} - theta_{t-1}
+x_dot = 0#raw_datas[0, 0]
+y_dot = 0#raw_datas[0, 1]
+theta_dot = 0# raw_datas[0, 2]
+pose_dot = np.array([[x_dot, y_dot, theta_dot]])
+
+dt = raw_datas[0,5]
+x_datas[0, 7] = dt
+
+for i in range(1,len(raw_datas)):
+    x_dot = raw_datas[i, 0] - raw_datas[i-1, 0]
+    y_dot = raw_datas[i, 1] - raw_datas[i-1, 1]
+    theta_dot = raw_datas[i, 2] - raw_datas[i-1,2]
+    pose_dot = np.append(pose_dot,[[x_dot, y_dot, theta_dot]], axis=0)
+
+    dt = raw_datas[i, 5] - raw_datas[i-1, 5]
+    x_datas[i, 7] = dt
+
+
 gt = pose_dot[:,2] > np.pi
 pose_dot[gt,2] = pose_dot[gt,2] - 2*np.pi
+
 
 # TODO
 # Some raw values from sensors / particle filter may be noisy. It is safe to
@@ -113,6 +140,31 @@ pose_dot[gt,2] = pose_dot[gt,2] - 2*np.pi
 # like a Savitzky-Golay filter. You should confirm visually (by plotting) that
 # your chosen smoother works as intended.
 # An example of what this may look like is in the homework document.
+
+
+# raw_datas = [ x, y, theta, v, delta, time]
+# x_datas[i,  :] = [x_dot, y_dot, theta_dot, sin(theta), cos(theta), v, delta, dt]
+# y_datas[i-1,:] = [x_dot, y_dot, theta_dot ]
+
+
+window_size = 9
+poly_len = 3
+
+x_datas[:, 0] = scipy.signal.savgol_filter(pose_dot[:,0], window_size, poly_len)
+x_datas[:, 1] = scipy.signal.savgol_filter(pose_dot[:,1], window_size, poly_len)
+x_datas[:, 2] = scipy.signal.savgol_filter(pose_dot[:,2], window_size, poly_len)
+x_datas[:, 3] = scipy.signal.savgol_filter(np.sin(pose_dot[:,2]), window_size, poly_len)
+x_datas[:, 4] = scipy.signal.savgol_filter(np.cos(pose_dot[:,2]), window_size, poly_len)
+x_datas[:, 5] = scipy.signal.savgol_filter(raw_datas[:,3], window_size, poly_len)
+x_datas[:, 6] = scipy.signal.savgol_filter(raw_datas[:,4], window_size, poly_len)
+
+#dt is calculated by the previous for-loop,
+
+max_ind = 900
+plt.plot(raw_datas[0:max_ind,5] - raw_datas[0,5], pose_dot[0:max_ind,0] ,    \
+        raw_datas[0:max_ind,5] - raw_datas[0,5], x_datas[0:max_ind,0] )
+plt.show()
+
 
 # Convince yourself that input/output values are not strange
 print("Xdot  ", np.min(x_datas[:,0]), np.max(x_datas[:,0]))
@@ -192,10 +244,10 @@ def rollout(m, nn_input, N):
         nn_input[2] = out.data[2]
         nn_input[3] = pose[2]
         print(pose.cpu().numpy())
- 
+
 def test_model(m, N, dt = 0.1):
     cos, v, st = 4, 5, 6
-    s = INPUT_SIZE 
+    s = INPUT_SIZE
     print("Nothing")
     nn_input = torch.zeros(s).cuda()
     nn_input[cos] = 1.0
@@ -208,4 +260,3 @@ def test_model(m, N, dt = 0.1):
     nn_input[v] = 0.7 #1.0
     nn_input[7] = dt
     rollout(m, nn_input, N)
-
