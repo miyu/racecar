@@ -10,6 +10,7 @@ import utils as Utils
 import random
 
 import torch
+import torch.nn as nn
 import torch.utils.data
 from torch.autograd import Variable
 
@@ -20,213 +21,226 @@ SPEED_TO_ERPM_GAIN       = 4614.0
 STEERING_TO_SERVO_OFFSET = 0.5304
 STEERING_TO_SERVO_GAIN   = -1.2135
 
-if len(sys.argv) < 2:
-    print('Input a bag file from command line')
-    print('Input a bag file from command line')
-    print('Input a bag file from command line')
-    print('Input a bag file from command line')
-    print('Input a bag file from command line')
-    sys.exit()
-bag = rosbag.Bag(sys.argv[1])
-tandt = bag.get_type_and_topic_info()
-t1='/vesc/sensors/core'
-t2='/vesc/sensors/servo_position_command'
-t3='/pf/ta/viz/inferred_pose'
-topics = [t1,t2,t3]
-min_datas = tandt[1][t3][1] # number of t3 messages is less than t1, t2
+if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        print('Input a bag file from command line')
+        print('Input a bag file from command line')
+        print('Input a bag file from command line')
+        print('Input a bag file from command line')
+        print('Input a bag file from command line')
+        sys.exit()
+    bag = rosbag.Bag(sys.argv[1])
+    tandt = bag.get_type_and_topic_info()
+    t1='/vesc/sensors/core'
+    t2='/vesc/sensors/servo_position_command'
+    t3='/pf/ta/viz/inferred_pose'
+    topics = [t1,t2,t3]
+    min_datas = tandt[1][t3][1] # number of t3 messages is less than t1, t2
 
-INPUT_SIZE=8
-OUTPUT_SIZE=3
-DATA_SIZE=6
+    INPUT_SIZE=8
+    OUTPUT_SIZE=3
+    DATA_SIZE=6
 
-raw_datas = np.zeros((min_datas,DATA_SIZE))
+    raw_datas = np.zeros((min_datas,DATA_SIZE))
 
-last_servo, last_vel = 0.0, 0.0
-n_servo, n_vel = 0, 0
-idx=0
-# The following for-loop cycles through the bag file and averages all control
-# inputs until an inferred_pose from the particle filter is recieved. We then
-# save that data into a buffer for later processing.
-# You should experiment with additional data streams to see if your model
-# performance improves.
-for topic, msg, t in bag.read_messages(topics=topics):
-    if topic == t1:
-        last_vel   += (msg.state.speed - SPEED_TO_ERPM_OFFSET) / SPEED_TO_ERPM_GAIN
-        n_vel += 1
-    elif topic == t2:
-        last_servo += (msg.data - STEERING_TO_SERVO_OFFSET) / STEERING_TO_SERVO_GAIN
-        n_servo += 1
-    elif topic == t3 and n_vel > 0 and n_servo > 0:
-        timenow = msg.header.stamp
-        last_t = timenow.to_sec()
-        last_vel /= n_vel
-        last_servo /= n_servo
-        orientation = Utils.quaternion_to_angle(msg.pose.orientation)
-        data = np.array([msg.pose.position.x,
-                         msg.pose.position.y,
-                         orientation,
-                         last_vel,
-                         last_servo,
-                         last_t])
-        raw_datas[idx,:] = data
-        last_vel = 0.0
-        last_servo = 0.0
-        n_vel = 0
-        n_servo = 0
-        idx = idx+1
-        if idx % 1000==0:
-            print('.')
-bag.close()
+    last_servo, last_vel = 0.0, 0.0
+    n_servo, n_vel = 0, 0
+    idx=0
+    # The following for-loop cycles through the bag file and averages all control
+    # inputs until an inferred_pose from the particle filter is recieved. We then
+    # save that data into a buffer for later processing.
+    # You should experiment with additional data streams to see if your model
+    # performance improves.
+    for topic, msg, t in bag.read_messages(topics=topics):
+        if topic == t1:
+            last_vel   += (msg.state.speed - SPEED_TO_ERPM_OFFSET) / SPEED_TO_ERPM_GAIN
+            n_vel += 1
+        elif topic == t2:
+            last_servo += (msg.data - STEERING_TO_SERVO_OFFSET) / STEERING_TO_SERVO_GAIN
+            n_servo += 1
+        elif topic == t3 and n_vel > 0 and n_servo > 0:
+            timenow = msg.header.stamp
+            last_t = timenow.to_sec()
+            last_vel /= n_vel
+            last_servo /= n_servo
+            orientation = Utils.quaternion_to_angle(msg.pose.orientation)
+            data = np.array([msg.pose.position.x,
+                             msg.pose.position.y,
+                             orientation,
+                             last_vel,
+                             last_servo,
+                             last_t])
+            raw_datas[idx,:] = data
+            last_vel = 0.0
+            last_servo = 0.0
+            n_vel = 0
+            n_servo = 0
+            idx = idx+1
+            if idx % 1000==0:
+                print('.')
+    bag.close()
 
-# Pre-process the data to remove outliers, filter for smoothness, and calculate
-# values not directly measured by sensors
+    # Pre-process the data to remove outliers, filter for smoothness, and calculate
+    # values not directly measured by sensors
 
-# Note:
-# Neural networks and other machine learning methods would prefer terms to be
-# equally weighted, or in approximately the same range of values. Here, we can
-# keep the range of values to be between -1 and 1, but any data manipulation we
-# do here from raw values to our model input we will also need to do in our
-# MPPI code.
+    # Note:
+    # Neural networks and other machine learning methods would prefer terms to be
+    # equally weighted, or in approximately the same range of values. Here, we can
+    # keep the range of values to be between -1 and 1, but any data manipulation we
+    # do here from raw values to our model input we will also need to do in our
+    # MPPI code.
 
-# We have collected:
-# raw_datas = [ x, y, theta, v, delta, time]
-# We want to have:
-# x_datas[i,  :] = [x_dot, y_dot, theta_dot, sin(theta), cos(theta), v, delta, dt]
-# y_datas[i-1,:] = [x_dot, y_dot, theta_dot ]
+    # We have collected:
+    # raw_datas = [ x, y, theta, v, delta, time]
+    # We want to have:
+    # x_datas[i,  :] = [x_dot, y_dot, theta_dot, sin(theta), cos(theta), v, delta, dt]
+    # y_datas[i-1,:] = [x_dot, y_dot, theta_dot ]
 
-raw_datas = raw_datas[:idx, :] # Clip to only data found from bag file
-raw_datas = raw_datas[ np.abs(raw_datas[:,3]) < 0.75 ] # discard bad controls
-raw_datas = raw_datas[ np.abs(raw_datas[:,4]) < 0.36 ] # discard bad controls
+    raw_datas = raw_datas[:idx, :] # Clip to only data found from bag file
+    raw_datas = raw_datas[ np.abs(raw_datas[:,3]) < 0.75 ] # discard bad controls
+    raw_datas = raw_datas[ np.abs(raw_datas[:,4]) < 0.36 ] # discard bad controls
 
-x_datas = np.zeros( (raw_datas.shape[0], INPUT_SIZE) )
-y_datas = np.zeros( (raw_datas.shape[0], OUTPUT_SIZE) )
+    x_datas = np.zeros( (raw_datas.shape[0], INPUT_SIZE) )
+    y_datas = np.zeros( (raw_datas.shape[0], OUTPUT_SIZE) )
 
-dt = np.diff(raw_datas[:,5])
+    dt = np.diff(raw_datas[:,5])
 
-# TODO
-# It is critical we properly handle theta-rollover:
-# as -pi < theta < pi, theta_dot can be > pi, so we have to handle those
-# cases to keep theta_dot also between -pi and pi
+    # TODO
+    # It is critical we properly handle theta-rollover:
+    # as -pi < theta < pi, theta_dot can be > pi, so we have to handle those
+    # cases to keep theta_dot also between -pi and pi
 
-# Information about the variables.
-# pose_dot[i, :]  = [x_dot, y_dot, theta_dot]
-# x_dot = x_{t} - x_{t-1}
-# y_dot = y_{t} - y_{t-1}
-# theta_dot = theta_{t} - theta_{t-1}
+    # Information about the variables.
+    # pose_dot[i, :]  = [x_dot, y_dot, theta_dot]
+    # x_dot = x_{t} - x_{t-1}
+    # y_dot = y_{t} - y_{t-1}
+    # theta_dot = theta_{t} - theta_{t-1}
 
-x_dot = 0       #raw_datas[0, 0
-y_dot = 0       #raw_datas[0, 1]
-theta_dot = 0   # raw_datas[0, 2]
-pose_dot = np.array([[x_dot, y_dot, theta_dot]])
+    x_dot = 0       #raw_datas[0, 0
+    y_dot = 0       #raw_datas[0, 1]
+    theta_dot = 0   # raw_datas[0, 2]
+    pose_dot = np.array([[x_dot, y_dot, theta_dot]])
 
-dt = raw_datas[0,5]
-x_datas[0, 7] = dt
+    dt = raw_datas[0,5]
+    x_datas[0, 7] = dt
 
-for i in range(1,len(raw_datas)):
-    x_dot = raw_datas[i, 0] - raw_datas[i-1, 0]
-    y_dot = raw_datas[i, 1] - raw_datas[i-1, 1]
-    theta_dot = raw_datas[i, 2] - raw_datas[i-1,2]
-    pose_dot = np.append(pose_dot,[[x_dot, y_dot, theta_dot]], axis=0)
+    for i in range(1,len(raw_datas)):
+        x_dot = raw_datas[i, 0] - raw_datas[i-1, 0]
+        y_dot = raw_datas[i, 1] - raw_datas[i-1, 1]
+        theta_dot = raw_datas[i, 2] - raw_datas[i-1,2]
+        pose_dot = np.append(pose_dot,[[x_dot, y_dot, theta_dot]], axis=0)
 
-    dt = raw_datas[i, 5] - raw_datas[i-1, 5]
-    x_datas[i, 7] = dt
-
-
-gt = pose_dot[:,2] > np.pi
-pose_dot[gt,2] = pose_dot[gt,2] - 2*np.pi
+        dt = raw_datas[i, 5] - raw_datas[i-1, 5]
+        x_datas[i, 7] = dt
 
 
-# TODO
-# Some raw values from sensors / particle filter may be noisy. It is safe to
-# filter the raw values to make them more well behaved. We recommend something
-# like a Savitzky-Golay filter. You should confirm visually (by plotting) that
-# your chosen smoother works as intended.
-# An example of what this may look like is in the homework document.
-
-# raw_datas = [ x, y, theta, v, delta, time]
-# x_datas[i,  :] = [x_dot, y_dot, theta_dot, sin(theta), cos(theta), v, delta, dt]
-# y_datas[i-1,:] = [x_dot, y_dot, theta_dot ]
-
-window_size = 9
-poly_len = 3
-
-x_datas[:, 0] = scipy.signal.savgol_filter(pose_dot[:,0], window_size, poly_len)
-x_datas[:, 1] = scipy.signal.savgol_filter(pose_dot[:,1], window_size, poly_len)
-x_datas[:, 2] = scipy.signal.savgol_filter(pose_dot[:,2], window_size, poly_len)
-x_datas[:, 3] = scipy.signal.savgol_filter(np.sin(pose_dot[:,2]), window_size, poly_len)
-x_datas[:, 4] = scipy.signal.savgol_filter(np.cos(pose_dot[:,2]), window_size, poly_len)
-x_datas[:, 5] = scipy.signal.savgol_filter(raw_datas[:,3], window_size, poly_len)
-x_datas[:, 6] = scipy.signal.savgol_filter(raw_datas[:,4], window_size, poly_len)
-
-#dt is calculated by the previous for-loop,
+    gt = pose_dot[:,2] > np.pi
+    pose_dot[gt,2] = pose_dot[gt,2] - 2*np.pi
 
 
-#####
-# Plot the raw and filtered x_dot
-#####
-max_ind = 900
-plt.plot(raw_datas[0:max_ind,5] - raw_datas[0,5], pose_dot[0:max_ind,0] ,    \
-        raw_datas[0:max_ind,5] - raw_datas[0,5], x_datas[0:max_ind,0] )
-plt.show()
+    # TODO
+    # Some raw values from sensors / particle filter may be noisy. It is safe to
+    # filter the raw values to make them more well behaved. We recommend something
+    # like a Savitzky-Golay filter. You should confirm visually (by plotting) that
+    # your chosen smoother works as intended.
+    # An example of what this may look like is in the homework document.
 
-##############################################
-# Is there a better way to get y_datas?
-##############################################
-for i in range(len(raw_datas)-1):
-    x_dot = raw_datas[i+1, 0] - raw_datas[i, 0]
-    y_dot = raw_datas[i+1, 1] - raw_datas[i, 1]
-    theta_dot = raw_datas[i+1, 2] - raw_datas[i,2]
-    y_datas[i] = [x_dot, y_dot, theta_dot]
+    # raw_datas = [ x, y, theta, v, delta, time]
+    # x_datas[i,  :] = [x_dot, y_dot, theta_dot, sin(theta), cos(theta), v, delta, dt]
+    # y_datas[i-1,:] = [x_dot, y_dot, theta_dot ]
 
-y_datas[:, 0] = scipy.signal.savgol_filter(y_datas[:,0], window_size, poly_len)
-y_datas[:, 1] = scipy.signal.savgol_filter(y_datas[:,1], window_size, poly_len)
-y_datas[:, 2] = scipy.signal.savgol_filter(y_datas[:,2], window_size, poly_len)
+    window_size = 9
+    poly_len = 3
+
+    x_datas[:, 0] = scipy.signal.savgol_filter(pose_dot[:,0], window_size, poly_len)
+    x_datas[:, 1] = scipy.signal.savgol_filter(pose_dot[:,1], window_size, poly_len)
+    x_datas[:, 2] = scipy.signal.savgol_filter(pose_dot[:,2], window_size, poly_len)
+    x_datas[:, 3] = scipy.signal.savgol_filter(np.sin(pose_dot[:,2]), window_size, poly_len)
+    x_datas[:, 4] = scipy.signal.savgol_filter(np.cos(pose_dot[:,2]), window_size, poly_len)
+    x_datas[:, 5] = scipy.signal.savgol_filter(raw_datas[:,3], window_size, poly_len)
+    x_datas[:, 6] = scipy.signal.savgol_filter(raw_datas[:,4], window_size, poly_len)
+
+    #dt is calculated by the previous for-loop,
 
 
-# Convince yourself that input/output values are not strange
-print("Xdot  ", np.min(x_datas[:,0]), np.max(x_datas[:,0]))
-print("Ydot  ", np.min(x_datas[:,1]), np.max(x_datas[:,1]))
-print("Tdot  ", np.min(x_datas[:,2]), np.max(x_datas[:,2]))
-print("sin   ", np.min(x_datas[:,3]), np.max(x_datas[:,3]))
-print("cos   ", np.min(x_datas[:,4]), np.max(x_datas[:,4]))
-print("vel   ", np.min(x_datas[:,5]), np.max(x_datas[:,5]))
-print("delt  ", np.min(x_datas[:,6]), np.max(x_datas[:,6]))
-print("dt    ", np.min(x_datas[:,7]), np.max(x_datas[:,7]))
-print()
-print("y Xdot", np.min(y_datas[:,0]), np.max(y_datas[:,0]))
-print("y Ydot", np.min(y_datas[:,1]), np.max(y_datas[:,1]))
-print("y Tdot", np.min(y_datas[:,2]), np.max(y_datas[:,2]))
+    #####
+    # Plot the raw and filtered x_dot
+    #####
+    max_ind = 900
+    plt.plot(raw_datas[0:max_ind,5] - raw_datas[0,5], pose_dot[0:max_ind,0] ,    \
+            raw_datas[0:max_ind,5] - raw_datas[0,5], x_datas[0:max_ind,0] )
+    plt.show()
 
-######### NN stuff
-dtype = torch.cuda.FloatTensor
-D_in, H, D_out = INPUT_SIZE, 32, OUTPUT_SIZE
+    ##############################################
+    # Is there a better way to get y_datas?
+    ##############################################
+    for i in range(len(raw_datas)-1):
+        x_dot = raw_datas[i+1, 0] - raw_datas[i, 0]
+        y_dot = raw_datas[i+1, 1] - raw_datas[i, 1]
+        theta_dot = raw_datas[i+1, 2] - raw_datas[i,2]
+        y_datas[i] = [x_dot, y_dot, theta_dot]
 
-# Make validation set
-num_samples = x_datas.shape[0]
-rand_idx = np.random.permutation(num_samples)
-x_d = x_datas[rand_idx,:]
-y_d = y_datas[rand_idx,:]
-split = int(0.9*num_samples)
-x_tr = x_d[:split]
-y_tr = y_d[:split]
-x_tt = x_d[split:]
-y_tt = y_d[split:]
+    y_datas[:, 0] = scipy.signal.savgol_filter(y_datas[:,0], window_size, poly_len)
+    y_datas[:, 1] = scipy.signal.savgol_filter(y_datas[:,1], window_size, poly_len)
+    y_datas[:, 2] = scipy.signal.savgol_filter(y_datas[:,2], window_size, poly_len)
 
-x = torch.from_numpy(x_tr.astype('float32')).type(dtype)
-y = torch.from_numpy(y_tr.astype('float32')).type(dtype)
-x_val = torch.from_numpy(x_tt.astype('float32')).type(dtype)
-y_val = torch.from_numpy(y_tt.astype('float32')).type(dtype)
 
-# TODO
-# specify your neural network (or other) model here.
-# model = torch
+    # Convince yourself that input/output values are not strange
+    print("Xdot  ", np.min(x_datas[:,0]), np.max(x_datas[:,0]))
+    print("Ydot  ", np.min(x_datas[:,1]), np.max(x_datas[:,1]))
+    print("Tdot  ", np.min(x_datas[:,2]), np.max(x_datas[:,2]))
+    print("sin   ", np.min(x_datas[:,3]), np.max(x_datas[:,3]))
+    print("cos   ", np.min(x_datas[:,4]), np.max(x_datas[:,4]))
+    print("vel   ", np.min(x_datas[:,5]), np.max(x_datas[:,5]))
+    print("delt  ", np.min(x_datas[:,6]), np.max(x_datas[:,6]))
+    print("dt    ", np.min(x_datas[:,7]), np.max(x_datas[:,7]))
+    print()
+    print("y Xdot", np.min(y_datas[:,0]), np.max(y_datas[:,0]))
+    print("y Ydot", np.min(y_datas[:,1]), np.max(y_datas[:,1]))
+    print("y Tdot", np.min(y_datas[:,2]), np.max(y_datas[:,2]))
 
-loss_fn = torch.nn.MSELoss(size_average=False)
-learning_rate = 1e-3
-opt = torch.optim.Adam(model.parameters(), lr=1e-3) #learning_rate)
+    ######### NN stuff
+    dtype = torch.cuda.FloatTensor
+    D_in, H, D_out = INPUT_SIZE, 32, OUTPUT_SIZE # Size of each layer
 
-def doTraining(model, filename, optimizer, N=5000):
-    for t in range(N):
+    # Make validation set
+    num_samples = x_datas.shape[0]
+    rand_idx = np.random.permutation(num_samples)
+    x_d = x_datas[rand_idx,:]
+    y_d = y_datas[rand_idx,:]
+    split = int(0.9*num_samples)
+    x_tr = x_d[:split]
+    y_tr = y_d[:split]
+    x_tt = x_d[split:]
+    y_tt = y_d[split:]
+
+    x = torch.from_numpy(x_tr.astype('float32')).type(dtype)
+    y = torch.from_numpy(y_tr.astype('float32')).type(dtype)
+    x_val = torch.from_numpy(x_tt.astype('float32')).type(dtype)
+    y_val = torch.from_numpy(y_tt.astype('float32')).type(dtype)
+
+    # TODO
+    # specify your neural network (or other) model here.
+
+    H1 = 32 # Number of units in 1st hidden layer (we may want to add more hidden layers later)
+    model = torch.nn.Sequential(
+              torch.nn.Linear(INPUT_SIZE, H1),
+              torch.nn.ReLU(),
+              torch.nn.Linear(H1, OUTPUT_SIZE),
+            )
+    filename = 'ForwardNet.pt'
+
+    loss_fn = torch.nn.MSELoss(size_average=False) # For a regression problem, maybe this is fine
+    learning_rate = 1e-3
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+    doTraining(model, filename, optimizer, loss_fn) # Default 5000 iterations
+    trained_model = torch.load(filename)
+    test_model(model=trained_model, steps=100, dt = 0.1)
+
+def doTraining(model, filename, optimizer, loss_fn, training_iterations=5000):
+    print('Training Network: ')
+    for t in range(training_iterations):
         y_pred = model(Variable(x))
         loss = loss_fn(y_pred, Variable(y, requires_grad=False))
         if t % 50 == 0:
@@ -243,13 +257,14 @@ def doTraining(model, filename, optimizer, N=5000):
 # The following are functions meant for debugging and sanity checking your
 # model. You should use these and / or design your own testing tools.
 # test_model starts at [0,0,0]; you can specify a control to be applied and the
-# rollout() function will use that control for N timesteps.
+# rollout() function will use that control for N steps.
 # i.e. a velocity value of 0.7 should drive the car to a positive x value.
-def rollout(m, nn_input, N):
+def rollout(model, nn_input, steps):
+    print('Generating Rollouts: ')
     pose = torch.zeros(3).cuda()
     print(pose.cpu().numpy())
-    for i in range(N):
-        out = m(Variable(nn_input))
+    for i in range(steps):
+        out = model(Variable(nn_input))
         pose.add_(out.data)
         # Wrap pi
         if pose[2] > 3.14:
@@ -262,18 +277,18 @@ def rollout(m, nn_input, N):
         nn_input[3] = pose[2]
         print(pose.cpu().numpy())
 
-def test_model(m, N, dt = 0.1):
+def test_model(model, steps, dt = 0.1):
     cos, v, st = 4, 5, 6
     s = INPUT_SIZE
-    print("Nothing")
+    print("Testing No Velocity")
     nn_input = torch.zeros(s).cuda()
     nn_input[cos] = 1.0
     nn_input[7] = dt
-    rollout(m, nn_input, N)
+    rollout(model, nn_input, steps)
 
-    print("Forward")
+    print("Testing Forward Velocity")
     nn_input = torch.zeros(s).cuda()
     nn_input[cos] = 1.0
     nn_input[v] = 0.7 #1.0
     nn_input[7] = dt
-    rollout(m, nn_input, N)
+    rollout(model, nn_input, steps)
