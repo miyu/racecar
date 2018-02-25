@@ -29,7 +29,12 @@ if __name__ == '__main__':
         print('Input a bag file from command line')
         print('Input a bag file from command line')
         sys.exit()
-    bag = rosbag.Bag(sys.argv[1])
+    
+    bag_path = None
+    rospy.init_node('trainer', anonymous=True)
+    bag_path = rospy.get_param('~bag_path')
+    
+    bag = rosbag.Bag(bag_path)#(sys.argv[1])
     tandt = bag.get_type_and_topic_info()
     t1='/vesc/sensors/core'
     t2='/vesc/sensors/servo_position_command'
