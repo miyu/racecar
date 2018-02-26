@@ -114,23 +114,25 @@ dt = np.diff(raw_datas[:,5])
 # y_dot = y_{t} - y_{t-1}
 # theta_dot = theta_{t} - theta_{t-1}
 
-x_dot = 0       #raw_datas[0, 0
-y_dot = 0       #raw_datas[0, 1]
-theta_dot = 0   # raw_datas[0, 2]
-pose_dot = np.array([[x_dot, y_dot, theta_dot]])
+# x_dot = raw_datas[1, 0] - raw_datas[0, 0]
+# y_dot = raw_datas[1, 1] - raw_datas[0, 1]
+# theta_dot = raw_datas[1, 2] - raw_datas[0, 2]
+# pose_dot = np.array([[x_dot, y_dot, theta_dot]])
 
-dt = raw_datas[0,5]
-x_datas[0, 7] = dt
+x_datas[1:, 7] = dt
 
-for i in range(1,len(raw_datas)):
-    x_dot = raw_datas[i, 0] - raw_datas[i-1, 0]
-    y_dot = raw_datas[i, 1] - raw_datas[i-1, 1]
-    theta_dot = raw_datas[i, 2] - raw_datas[i-1,2]
-    pose_dot = np.append(pose_dot,[[x_dot, y_dot, theta_dot]], axis=0)
-
-    dt = raw_datas[i, 5] - raw_datas[i-1, 5]
-    x_datas[i, 7] = dt
-
+# for i in range(1,len(raw_datas)):
+#     x_dot = raw_datas[i, 0] - raw_datas[i-1, 0]
+#     y_dot = raw_datas[i, 1] - raw_datas[i-1, 1]
+#     theta_dot = raw_datas[i, 2] - raw_datas[i-1,2]
+#     pose_dot = np.append(pose_dot,[[x_dot, y_dot, theta_dot]], axis=0)
+#
+#     #dt = raw_datas[i, 5] - raw_datas[i-1, 5]
+#     #x_datas[i, 7] = dt
+x_dot = np.diff(raw_datas[:, 0])
+y_dot = np.diff(raw_datas[:, 1])
+theta_dot = np.diff(raw_datas[:, 2])
+pose_dot = np.column_stack((x_dot, y_dot, theta_dot))
 
 gt = pose_dot[:,2] > np.pi
 pose_dot[gt,2] = pose_dot[gt,2] - 2*np.pi
@@ -150,21 +152,20 @@ pose_dot[gt,2] = pose_dot[gt,2] - 2*np.pi
 window_size = 9
 poly_len = 3
 
-x_datas[:, 0] = scipy.signal.savgol_filter(pose_dot[:,0], window_size, poly_len)
-x_datas[:, 1] = scipy.signal.savgol_filter(pose_dot[:,1], window_size, poly_len)
-x_datas[:, 2] = scipy.signal.savgol_filter(pose_dot[:,2], window_size, poly_len)
-x_datas[:, 3] = scipy.signal.savgol_filter(np.sin(pose_dot[:,2]), window_size, poly_len)
-x_datas[:, 4] = scipy.signal.savgol_filter(np.cos(pose_dot[:,2]), window_size, poly_len)
+x_datas[1:, 0] = scipy.signal.savgol_filter(pose_dot[:,0], window_size, poly_len)
+x_datas[1:, 1] = scipy.signal.savgol_filter(pose_dot[:,1], window_size, poly_len)
+x_datas[1:, 2] = scipy.signal.savgol_filter(pose_dot[:,2], window_size, poly_len)
+x_datas[:, 3] = scipy.signal.savgol_filter(np.sin(raw_datas[:,2]), window_size, poly_len)
+x_datas[:, 4] = scipy.signal.savgol_filter(np.cos(raw_datas[:,2]), window_size, poly_len)
 x_datas[:, 5] = scipy.signal.savgol_filter(raw_datas[:,3], window_size, poly_len)
 x_datas[:, 6] = scipy.signal.savgol_filter(raw_datas[:,4], window_size, poly_len)
-
 #dt is calculated by the previous for-loop,
 
 
 #####
 # Plot the raw and filtered x_dot
 #####
-max_ind = 900
+max_ind = 1000
 plt.plot(raw_datas[0:max_ind,5] - raw_datas[0,5], pose_dot[0:max_ind,0] ,    \
         raw_datas[0:max_ind,5] - raw_datas[0,5], x_datas[0:max_ind,0] )
 plt.show()
@@ -172,16 +173,9 @@ plt.show()
 ##############################################
 # Is there a better way to get y_datas?
 ##############################################
-for i in range(len(raw_datas)-1):
-    x_dot = raw_datas[i+1, 0] - raw_datas[i, 0]
-    y_dot = raw_datas[i+1, 1] - raw_datas[i, 1]
-    theta_dot = raw_datas[i+1, 2] - raw_datas[i,2]
-    y_datas[i] = [x_dot, y_dot, theta_dot]
-
-y_datas[:, 0] = scipy.signal.savgol_filter(y_datas[:,0], window_size, poly_len)
-y_datas[:, 1] = scipy.signal.savgol_filter(y_datas[:,1], window_size, poly_len)
-y_datas[:, 2] = scipy.signal.savgol_filter(y_datas[:,2], window_size, poly_len)
-
+end_ind = len(x_datas)
+y_datas[:end_ind-1] = x_datas[1:,0:3]
+y_datas[end_ind-1] = y_datas[end_ind - 2]
 
 # Convince yourself that input/output values are not strange
 print("Xdot  ", np.min(x_datas[:,0]), np.max(x_datas[:,0]))
@@ -221,9 +215,26 @@ y_val = torch.from_numpy(y_tt.astype('float32')).type(dtype)
 # specify your neural network (or other) model here.
 # model = torch
 
+net = nn.Sequential(
+    nn.Linear(x_datas.shape[1], 10),
+    nn.ReLU(),
+    nn.Linear(10, 1)
+)
+
+x = Variable(x, requires_grad=True) # Needs Gradient
+y = Variable(y, requires_grad=False) # Target does not need gradient
+x_val = Variable(x, requires_grad=False) # No Gradient for test data
+y_val = Variable(x, requires_grad=False) # Target does not need gradient
+
+
+
 loss_fn = torch.nn.MSELoss(size_average=False)
 learning_rate = 1e-3
 opt = torch.optim.Adam(model.parameters(), lr=1e-3) #learning_rate)
+
+filename = 'Trained_model'
+doTraining(net, filename, opt)
+
 
 def doTraining(model, filename, optimizer, N=5000):
     for t in range(N):
@@ -234,6 +245,7 @@ def doTraining(model, filename, optimizer, N=5000):
             vloss = loss_fn(val, Variable(y_val, requires_grad=False))
             print(t, loss.data[0]/x.shape[0], vloss.data[0]/x_val.shape[0])
 
+        # Optimize
         optimizer.zero_grad() # clear out old computed gradients
         loss.backward()       # apply the loss function backprop
         optimizer.step()      # take a gradient step for model's parameters
@@ -253,13 +265,15 @@ def rollout(m, nn_input, N):
         pose.add_(out.data)
         # Wrap pi
         if pose[2] > 3.14:
-            pose[2] -= 3.14
+            pose[2] -= 2*np.pi
         if pose[2] < -3.14:
-            pose[2] += 3.14
+            pose[2] += 2*np.pi
         nn_input[0] = out.data[0]
         nn_input[1] = out.data[1]
         nn_input[2] = out.data[2]
-        nn_input[3] = pose[2]
+        nn_input[3] = np.sin(pose[2])
+        nn_input[4] = np.cos(pose[2])
+
         print(pose.cpu().numpy())
 
 def test_model(m, N, dt = 0.1):
