@@ -272,14 +272,15 @@ def rollout(model, nn_input, steps):
         out = model(Variable(nn_input))
         pose.add_(out.data)
         # Wrap pi
-        if pose[2] > 3.14:
-            pose[2] -= 3.14
-        if pose[2] < -3.14:
-            pose[2] += 3.14
+        if pose[2] > np.pi:
+            pose[2] -= 2*np.pi
+        if pose[2] < -np.pi:
+            pose[2] += 2*np.pi
         nn_input[0] = out.data[0]
         nn_input[1] = out.data[1]
         nn_input[2] = out.data[2]
-        nn_input[3] = pose[2]
+        nn_input[3] = np.sin(pose[2])
+        nn_input[4] = np.cos(pose[2])
         print(pose.cpu().numpy())
 
 def test_model(model, steps, dt = 0.1):
