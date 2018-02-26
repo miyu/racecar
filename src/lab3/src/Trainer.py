@@ -10,10 +10,14 @@ import utils as Utils
 import random
 
 import torch
+import torch.nn as nn
 import torch.utils.data
 from torch.autograd import Variable
 
 import matplotlib.pyplot as plt
+
+
+PLOT_FLAG = True
 
 SPEED_TO_ERPM_OFFSET     = 0.0
 SPEED_TO_ERPM_GAIN       = 4614.0
@@ -149,7 +153,7 @@ pose_dot[gt,2] = pose_dot[gt,2] - 2*np.pi
 # x_datas[i,  :] = [x_dot, y_dot, theta_dot, sin(theta), cos(theta), v, delta, dt]
 # y_datas[i-1,:] = [x_dot, y_dot, theta_dot ]
 
-window_size = 9
+window_size = 11
 poly_len = 3
 
 x_datas[1:, 0] = scipy.signal.savgol_filter(pose_dot[:,0], window_size, poly_len)
@@ -165,10 +169,11 @@ x_datas[:, 6] = scipy.signal.savgol_filter(raw_datas[:,4], window_size, poly_len
 #####
 # Plot the raw and filtered x_dot
 #####
-max_ind = 1000
-plt.plot(raw_datas[0:max_ind,5] - raw_datas[0,5], pose_dot[0:max_ind,0] ,    \
-        raw_datas[0:max_ind,5] - raw_datas[0,5], x_datas[0:max_ind,0] )
-plt.show()
+if not PLOT_FLAG:
+    max_ind = 1000
+    plt.plot(raw_datas[0:max_ind,5] - raw_datas[0,5], pose_dot[0:max_ind,0] ,    \
+            raw_datas[0:max_ind,5] - raw_datas[0,5], x_datas[0:max_ind,0] )
+    plt.show()
 
 ##############################################
 # Is there a better way to get y_datas?
@@ -215,17 +220,16 @@ y_val = torch.from_numpy(y_tt.astype('float32')).type(dtype)
 # specify your neural network (or other) model here.
 # model = torch
 
-net = nn.Sequential(
-    nn.Linear(x_datas.shape[1], 10),
+model = nn.Sequential(
+    nn.Linear(INPUT_SIZE, INPUT_SIZE),
     nn.ReLU(),
-    nn.Linear(10, 1)
+    nn.Linear(INPUT_SIZE, OUTPUT_SIZE)
 )
-
-x = Variable(x, requires_grad=True) # Needs Gradient
-y = Variable(y, requires_grad=False) # Target does not need gradient
-x_val = Variable(x, requires_grad=False) # No Gradient for test data
-y_val = Variable(x, requires_grad=False) # Target does not need gradient
-
+model = model.cuda()
+#x = Variable(x, requires_grad=True) # Needs Gradient
+#y = Variable(y, requires_grad=False) # Target does not need gradient
+#x_val = Variable(x_val, requires_grad=False) # No Gradient for test data
+#y_val = Variable(y_val, requires_grad=False) # Target does not need gradient
 
 
 loss_fn = torch.nn.MSELoss(size_average=False)
@@ -233,24 +237,37 @@ learning_rate = 1e-3
 opt = torch.optim.Adam(model.parameters(), lr=1e-3) #learning_rate)
 
 filename = 'Trained_model'
-doTraining(net, filename, opt)
-
 
 def doTraining(model, filename, optimizer, N=5000):
+    t_list = []
+    vloss_list = []
     for t in range(N):
         y_pred = model(Variable(x))
         loss = loss_fn(y_pred, Variable(y, requires_grad=False))
         if t % 50 == 0:
             val = model(Variable(x_val))
             vloss = loss_fn(val, Variable(y_val, requires_grad=False))
+
+            t_list.append(t)
+            vloss_list.append(vloss.data[0]/x_val.shape[0])
+            # First print is the loss
+            # Second print is the validation loss
             print(t, loss.data[0]/x.shape[0], vloss.data[0]/x_val.shape[0])
+
 
         # Optimize
         optimizer.zero_grad() # clear out old computed gradients
         loss.backward()       # apply the loss function backprop
         optimizer.step()      # take a gradient step for model's parameters
 
+        if not PLOT_FLAG and t != 0 and t %5000 == 0 :
+            plt.plot(t_list, vloss_list)
+            plt.show()
+
     torch.save(model, filename)
+
+doTraining(model, filename, opt, N = 10000)
+
 
 # The following are functions meant for debugging and sanity checking your
 # model. You should use these and / or design your own testing tools.
@@ -259,6 +276,8 @@ def doTraining(model, filename, optimizer, N=5000):
 # i.e. a velocity value of 0.7 should drive the car to a positive x value.
 def rollout(m, nn_input, N):
     pose = torch.zeros(3).cuda()
+    resx = []
+    resy = []
     print(pose.cpu().numpy())
     for i in range(N):
         out = m(Variable(nn_input))
@@ -273,8 +292,13 @@ def rollout(m, nn_input, N):
         nn_input[2] = out.data[2]
         nn_input[3] = np.sin(pose[2])
         nn_input[4] = np.cos(pose[2])
-
+        resx.append(out.data[0])
+        resy.append(out.data[1])
         print(pose.cpu().numpy())
+        if i != 0 and i % 20 == 0:
+            plt.plot(resx, resy)
+            plt.show()
+
 
 def test_model(m, N, dt = 0.1):
     cos, v, st = 4, 5, 6
@@ -291,3 +315,6 @@ def test_model(m, N, dt = 0.1):
     nn_input[v] = 0.7 #1.0
     nn_input[7] = dt
     rollout(m, nn_input, N)
+
+
+test_model(model, 50)
