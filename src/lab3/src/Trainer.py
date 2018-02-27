@@ -163,7 +163,7 @@ pose_dot[lt,2] = pose_dot[lt,2] + 2*np.pi
 # x_datas[i,  :] = [x_dot, y_dot, theta_dot, sin(theta), cos(theta), v, delta, dt]
 # y_datas[i-1,:] = [x_dot, y_dot, theta_dot ]
 
-window_size = 11
+window_size = 5
 poly_len = 3
 
 x_datas[1:, 0] = scipy.signal.savgol_filter(pose_dot[:,0], window_size, poly_len)
@@ -258,12 +258,12 @@ model = model.cuda()
 #y_val = Variable(y_val, requires_grad=False) # Target does not need gradient
 
 loss_fn = torch.nn.MSELoss(size_average=False)
-learning_rate = 5e-4
+learning_rate = 5e-5
 opt = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0.0) #learning_rate)
 
 filename = 'tanh50k.pt'
 
-def doTraining(model, filename, optimizer, N=5000):
+def doTraining(model, filename, optimizer, N=20000):
     t_list = []
     vloss_list = []
     for t in range(N):
@@ -338,16 +338,18 @@ def rollout(m, nn_input, N):
             plt.show()
             plt.plot(t, theta)
             plt.show()
+            plt.plot(x, y)
+            plt.show()
 
 
 def test_model(m, N, dt = 0.1):
     cos, v, st = 4, 5, 6
     s = INPUT_SIZE
-    # print("Nothing")
-    # nn_input = torch.zeros(s).cuda()
-    # nn_input[cos] = 1.0
-    # nn_input[7] = dt
-    # rollout(m, nn_input, N)
+    print("Nothing")
+    nn_input = torch.zeros(s).cuda()
+    nn_input[cos] = 1.0
+    nn_input[7] = dt
+    rollout(m, nn_input, N)
 
     print("Forward")
     nn_input = torch.zeros(s).cuda()
