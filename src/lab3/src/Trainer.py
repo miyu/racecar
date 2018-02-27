@@ -194,16 +194,16 @@ end_ind = len(x_datas)
 y_datas[:end_ind-1, 0:3] = x_datas[1:,0:3]
 
 # Make Training robust to stasis
-# num_stasis_pad = 0
-# x_zeros = np.zeros([num_stasis_pad, INPUT_SIZE])
-# y_zeros = np.zeros([num_stasis_pad, OUTPUT_SIZE])
-# pad_pose_thetas = np.random.uniform(0, np.pi * 2, num_stasis_pad)
-# x_zeros[:, 3] = np.sin(pad_pose_thetas) # cos 0 = 1
-# x_zeros[:, 4] = np.cos(pad_pose_thetas) # cos 0 = 1
-# x_zeros[:, 7] = np.clip(np.random.normal(0.25, 0.1, num_stasis_pad), 0.001, 0.5) # dt = 0.1
-#
-# x_datas = np.append(x_datas, x_zeros, axis=0)
-# y_datas = np.append(y_datas, y_zeros, axis=0)
+num_stasis_pad = 100
+x_zeros = np.zeros([num_stasis_pad, INPUT_SIZE])
+y_zeros = np.zeros([num_stasis_pad, OUTPUT_SIZE])
+pad_pose_thetas = np.random.uniform(0, np.pi * 2, num_stasis_pad)
+x_zeros[:, 3] = np.sin(pad_pose_thetas) # cos 0 = 1
+x_zeros[:, 4] = np.cos(pad_pose_thetas) # cos 0 = 1
+x_zeros[:, 7] = np.clip(np.random.normal(0.25, 0.1, num_stasis_pad), 0.001, 0.5) # dt = 0.1
+
+x_datas = np.append(x_datas, x_zeros, axis=0)
+y_datas = np.append(y_datas, y_zeros, axis=0)
 
 # Convince yourself that input/output values are not strange
 print("Xdot  ", np.min(x_datas[:,0]), np.max(x_datas[:,0]))
@@ -243,17 +243,17 @@ y_tt = y_d[split:]
 model = nn.Sequential(
     nn.Linear(INPUT_SIZE, H1),
     #nn.Tanh(), #relu
-    nn.Dropout(0.2),
+    nn.Dropout(0.13), #works best around 0.1 - 0.13
     # nn.ReLU(),
 
     nn.Linear(H1, H3),
     nn.ReLU(),
-    #nn.Tanh(),
 
+    # pretty terrible results
     # nn.Linear(H1, H2),
-    # nn.Tanh(),
+    # nn.ReLU(),
     # nn.Linear(H2, H3),
-    # nn.Tanh(),
+    # nn.ReLU(),
 
     nn.Linear(H3, OUTPUT_SIZE)
 )
@@ -265,12 +265,12 @@ model = model.cuda()
 #y_val = Variable(y_val, requires_grad=False) # Target does not need gradient
 
 loss_fn = torch.nn.MSELoss(size_average=False)
-learning_rate = 1e-3
+learning_rate = 3e-3
 opt = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0.0) #learning_rate)
 
 filename = 'tanh50k.pt'
 
-def doTraining(model, filename, optimizer, N=5000):
+def doTraining(model, filename, optimizer, N=10000):
     x = torch.from_numpy(x_tr.astype('float32')).type(dtype)
     y = torch.from_numpy(y_tr.astype('float32')).type(dtype)
     x_val = torch.from_numpy(x_tt.astype('float32')).type(dtype)
@@ -284,7 +284,7 @@ def doTraining(model, filename, optimizer, N=5000):
         x = x[rand_idx,:]
         y = y[rand_idx,:]
 
-        y_pred = model(Variable(x))
+        y_pred = model(Variable(x, requires_grad=True)) # gets to 9.399e-5 w/ rate 1e-3, then 5.88E-05 w/ rate 5e-3, 5e-05 w/ tweaks to dropout.
         loss = loss_fn(y_pred, Variable(y, requires_grad=False))
         if t % 50 == 0:
             val = model(Variable(x_val))
