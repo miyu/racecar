@@ -163,7 +163,7 @@ pose_dot[lt,2] = pose_dot[lt,2] + 2*np.pi
 # x_datas[i,  :] = [x_dot, y_dot, theta_dot, sin(theta), cos(theta), v, delta, dt]
 # y_datas[i-1,:] = [x_dot, y_dot, theta_dot ]
 
-window_size = 5
+window_size = 21
 poly_len = 3
 
 x_datas[1:, 0] = scipy.signal.savgol_filter(pose_dot[:,0], window_size, poly_len)
@@ -171,8 +171,8 @@ x_datas[1:, 1] = scipy.signal.savgol_filter(pose_dot[:,1], window_size, poly_len
 x_datas[1:, 2] = scipy.signal.savgol_filter(pose_dot[:,2], window_size, poly_len)
 x_datas[:, 3] = np.sin(raw_datas[:,2])#scipy.signal.savgol_filter(raw_datas[:,2], window_size, poly_len))
 x_datas[:, 4] = np.cos(raw_datas[:,2])#scipy.signal.savgol_filter(raw_datas[:,2], window_size, poly_len))
-x_datas[:, 5] = scipy.signal.savgol_filter(raw_datas[:,3], window_size, poly_len)
-x_datas[:, 6] = scipy.signal.savgol_filter(raw_datas[:,4], window_size, poly_len)
+x_datas[:, 5] = raw_datas[:,3]
+x_datas[:, 6] = raw_datas[:,4]
 x_datas[1:, 7] = scipy.signal.savgol_filter(dt, window_size, poly_len)
 
 #dt is calculated by the previous for-loop,
@@ -221,7 +221,9 @@ print("y Tdot", np.min(y_datas[:,2]), np.max(y_datas[:,2]))
 
 ######### NN stuff
 dtype = torch.cuda.FloatTensor
-D_in, H1, H2, H3, D_out = INPUT_SIZE, 32, 32, 32, OUTPUT_SIZE
+# D_in, H1, H2, H3, D_out = INPUT_SIZE, 32, 32, 32, OUTPUT_SIZE
+#D_in, H1, H2, H3, D_out = INPUT_SIZE, 32, 32, 32, OUTPUT_SIZE # 0.000513, with 5e-5
+D_in, H1, H2, H3, D_out = INPUT_SIZE, 80, 64, 64, OUTPUT_SIZE # 0.000525, with 5e-5
 
 # Make validation set
 num_samples = x_datas.shape[0]
@@ -234,20 +236,25 @@ y_tr = y_d[:split]
 x_tt = x_d[split:]
 y_tt = y_d[split:]
 
-x = torch.from_numpy(x_tr.astype('float32')).type(dtype)
-y = torch.from_numpy(y_tr.astype('float32')).type(dtype)
-x_val = torch.from_numpy(x_tt.astype('float32')).type(dtype)
-y_val = torch.from_numpy(y_tt.astype('float32')).type(dtype)
-
 # TODO
 # specify your neural network (or other) model here.
 # model = torch
 
 model = nn.Sequential(
     nn.Linear(INPUT_SIZE, H1),
-    nn.Tanh(),
+    #nn.Tanh(), #relu
+    nn.Dropout(0.2),
+    # nn.ReLU(),
+
     nn.Linear(H1, H3),
-    nn.Tanh(),
+    nn.ReLU(),
+    #nn.Tanh(),
+
+    # nn.Linear(H1, H2),
+    # nn.Tanh(),
+    # nn.Linear(H2, H3),
+    # nn.Tanh(),
+
     nn.Linear(H3, OUTPUT_SIZE)
 )
 model = model.cuda()
@@ -258,15 +265,25 @@ model = model.cuda()
 #y_val = Variable(y_val, requires_grad=False) # Target does not need gradient
 
 loss_fn = torch.nn.MSELoss(size_average=False)
-learning_rate = 5e-5
+learning_rate = 1e-3
 opt = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0.0) #learning_rate)
 
 filename = 'tanh50k.pt'
 
-def doTraining(model, filename, optimizer, N=20000):
+def doTraining(model, filename, optimizer, N=5000):
+    x = torch.from_numpy(x_tr.astype('float32')).type(dtype)
+    y = torch.from_numpy(y_tr.astype('float32')).type(dtype)
+    x_val = torch.from_numpy(x_tt.astype('float32')).type(dtype)
+    y_val = torch.from_numpy(y_tt.astype('float32')).type(dtype)
+
     t_list = []
     vloss_list = []
     for t in range(N):
+        num_samples = x.shape[0]
+        rand_idx = np.random.permutation(num_samples)
+        x = x[rand_idx,:]
+        y = y[rand_idx,:]
+
         y_pred = model(Variable(x))
         loss = loss_fn(y_pred, Variable(y, requires_grad=False))
         if t % 50 == 0:
