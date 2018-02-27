@@ -17,6 +17,8 @@ from vesc_msgs.msg import VescStateStamped
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped, PoseArray, PoseWithCovarianceStamped, PointStamped
 
+CONTROL_SIZE = 2
+
 class MPPIController:
 
   def __init__(self, T, K, sigma=0.5, _lambda=0.5):
@@ -24,7 +26,7 @@ class MPPIController:
     self.SPEED_TO_ERPM_GAIN   = float(rospy.get_param("/vesc/speed_to_erpm_gain", 4614.0))
     self.STEERING_TO_SERVO_OFFSET = float(rospy.get_param("/vesc/steering_angle_to_servo_offset", 0.5304))
     self.STEERING_TO_SERVO_GAIN   = float(rospy.get_param("/vesc/steering_angle_to_servo_gain", -1.2135))
-    self.CAR_LENGTH = 0.33 
+    self.CAR_LENGTH = 0.33
 
     self.last_pose = None
     # MPPI params
@@ -35,6 +37,7 @@ class MPPIController:
 
     self.goal = None # Lets keep track of the goal pose (world frame) over time
     self.lasttime = None
+    self.last_control = None
 
     # PyTorch / GPU data configuration
     # TODO
@@ -47,6 +50,10 @@ class MPPIController:
     print("Loading:", model_name)
     print("Model:\n",self.model)
     print("Torch Datatype:", self.dtype)
+    self.U = torch.cuda.FloatTensor(CONTROL_SIZE, self.K, self.T).zero_()
+    self.Sigma = torch.cuda.FloatTensor(CONTROL_SIZE,CONTROL_SIZE).zero_()
+    self.Epsilon = torch.cuda.FloatTensor(CONTROL_SIZE, self.K, self.T).zero_()
+    self.Trajectory_cost = torch.cuda.FloatTensor(self.K, 1).zero_()
 
     # control outputs
     self.msgid = 0
@@ -67,7 +74,7 @@ class MPPIController:
     print("Getting map from service: ", map_service_name)
     rospy.wait_for_service(map_service_name)
     map_msg = rospy.ServiceProxy(map_service_name, GetMap)().map # The map, will get passed to init of sensor model
-    self.map_info = map_msg.info # Save info about map for later use    
+    self.map_info = map_msg.info # Save info about map for later use
     print("Map Information:\n",self.map_info)
 
     # Create numpy array representing map for later use
@@ -78,13 +85,13 @@ class MPPIController:
     self.permissible_region[array_255==0] = 1 # Numpy array of dimension (map_msg.info.height, map_msg.info.width),
                                               # With values 0: not permissible, 1: permissible
     self.permissible_region = np.negative(self.permissible_region) # 0 is permissible, 1 is not
-                                              
+
     print("Making callbacks")
     self.goal_sub = rospy.Subscriber("/move_base_simple/goal",
             PoseStamped, self.clicked_goal_cb, queue_size=1)
     self.pose_sub  = rospy.Subscriber("/pf/ta/viz/inferred_pose",
             PoseStamped, self.mppi_cb, queue_size=1)
-    
+
   # TODO
   # You may want to debug your bounds checking code here, by clicking on a part
   # of the map and convincing yourself that you are correctly mapping the
@@ -95,7 +102,7 @@ class MPPIController:
                           Utils.quaternion_to_angle(msg.pose.orientation)])
     print("Current Pose: ", self.last_pose)
     print("SETTING Goal: ", self.goal)
-    
+
   def running_cost(self, pose, goal, ctrl, noise):
     # TODO
     # This cost function drives the behavior of the car. You want to specify a
@@ -108,7 +115,16 @@ class MPPIController:
     # behavior
     pose_cost = 0.0
     bounds_check = 0.0
-    ctrl_cost = 0.0
+    ctrl_cost = 0.0 # We can tweak this later
+
+    pose_cost = ((pose[0][0] - goal[0]) ** 2) + ((pose[0][1] - goal[1]) ** 2) +
+        ((pose[0][2] - goal[2]) ** 2)
+
+    map_pose = Utils.world_to_map(pose, self.map_info)
+    if self.permissible_region[int(map_pose[0][0])][int(map_pose[0][1])] != 0:
+        bounds_check = 1.0e5
+
+
 
     return pose_cost + ctrl_cost + bounds_check
 
@@ -126,7 +142,7 @@ class MPPIController:
     # Perform the MPPI weighting on your calculatd costs
     # Scale the added noise by the weighting and add to your control sequence
     # Apply the first control values, and shift your control trajectory
-    
+
     # Notes:
     # MPPI can be assisted by carefully choosing lambda, and sigma
     # It is advisable to clamp the control values to be within the feasible range
@@ -138,10 +154,49 @@ class MPPIController:
     # reasonable amount of calculations done (T = 40, K = 2000) within the 100ms
     # between inferred-poses from the particle filter.
 
+    self.Epsilon.normal_(std=self.sigma)
+    noisyU = self.U + self.Epsilon # self.U -> All K samples SHOULD BE IDENTICAL
+    # noisyU shape: (self.K, CONTROL_SIZE, self.T)
+
+    for t in range(1, self.T):
+        # noisyU[:,:,t-1] shape: (K, CONTROL_SIZE)
+        x_t = NN(self.last_pose, noisyU[:,:,t-1]) # x_t shape: (1, 3)
+
+        intermediate = torch.mm(self.U[0,:,t-1].transpose_(0,1),
+            self.Sigma) # Look up how to set covariance matrix
+        intermediate = torch.mm(intermediate, self.Epsilon[:,:,t-1])
+        # Lambda: Scalar
+        # self.U[0,:,t-1].transpose_(0,1) shape: (1, CONTROL_SIZE)
+        # self.Sigma shape: (CONTROL_SIZE, CONTROL_SIZE)
+        # self.Epsilon[:,:,t-1] shape: (CONTROL_SIZE, K)
+        # intermediate shape: (1, K)
+        self.Trajectory_cost += self.running_cost(x_t) + self._lambda * intermediate
+        # self.running_cost: Scalar
+        # self._lambda * intermediate: (1, K)
+        # self.Trajectory_cost shape: (1, K)
+
+    beta = torch.min(self.Trajectory_cost)
+    trajectoryMinusMin = self.Trajectory_cost - beta
+    trajectoryMinusMin *= (-1.0 / self._lambda)
+    n = torch.sum(torch.exp(trajectoryMinusMin))
+    omega = (1.0/ n) * torch.exp(trajectoryMinusMin)
+    # omega shape: (1, K)
+
+    for t in range(self.T):
+        omega = omega.expand(CONTROL_SIZE, -1) # Check this!
+        # w shape: (CONTROL_SIZE, K)
+        delta_control = torch.sum(omega * self.Epsilon[:,:,t], axis=1) # CHECK AXIS
+        # delta_control shape: (CONTROL_SIZE, 1)
+        self.U[:, :, t] += delta_control
+        # self.U[:, :, t] shape: (CONTROL_SIZE, K)
+
+    run_ctrl = self.U[:, :, 0]
+
     print("MPPI: %4.5f ms" % ((time.time()-t0)*1000.0))
 
     return run_ctrl, poses
 
+  # Particle Filter
   def mppi_cb(self, msg):
     #print("callback")
     if self.last_pose is None:
@@ -171,15 +226,19 @@ class MPPIController:
 
     run_ctrl, poses = mppi(curr_pose, nn_input)
 
+    self.U[:,:,0:self.T-1] = self.U[:,:,1:self.T]
+    self.U[:,:,self.T-1] = 0.0
+
     self.send_controls( run_ctrl[0], run_ctrl[1] )
 
+
     self.visualize(poses)
-  
+
   def send_controls(self, speed, steer):
     print("Speed:", speed, "Steering:", steer)
     ctrlmsg = AckermannDriveStamped()
     ctrlmsg.header.seq = self.msgid
-    ctrlmsg.drive.steering_angle = steer 
+    ctrlmsg.drive.steering_angle = steer
     ctrlmsg.drive.speed = speed
     self.ctrl_pub.publish(ctrlmsg)
     self.msgid += 1
@@ -207,7 +266,7 @@ def test_MPPI(mp, N, goal=np.array([0.,0.,0.])):
 
     print("Now:", pose)
   print("End:", pose)
-     
+
 if __name__ == '__main__':
 
   T = 30
@@ -223,4 +282,3 @@ if __name__ == '__main__':
   # test & DEBUG
   mp = MPPIController(T, K, sigma, _lambda)
   test_MPPI(mp, 10, np.array([0.,0.,0.])))
-
