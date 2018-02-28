@@ -1,0 +1,5 @@
+<launch>
+	<!-- Launch an ROI node and pass any necessary parameters -->
+	<node name="trainer" pkg="lab3" type="Trainer.py" output="screen">
+	</node>
+</launch>
