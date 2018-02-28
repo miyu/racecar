@@ -291,7 +291,7 @@ opt = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0.0) #
 
 filename = 'KinematicDropout0.13Itr5k.pt'
 
-def doTraining(model, filename, optimizer, N=5000):
+def doTraining(model, filename, optimizer, N=10000):
     x = torch.from_numpy(x_tr.astype('float32')).type(dtype)
     y = torch.from_numpy(y_tr.astype('float32')).type(dtype)
     x_val = torch.from_numpy(x_tt.astype('float32')).type(dtype)

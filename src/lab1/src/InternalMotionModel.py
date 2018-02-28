@@ -1,6 +1,8 @@
 import numpy as np
 import math
 
+from TorchInclude import torch, FloatTensor, Variable
+
 def rotate_2d(x, y, theta):
     c = np.cos(theta)
     s = np.sin(theta)
@@ -11,7 +13,7 @@ def np_array_or(x, y):
 
 class InternalOdometryMotionModel:
     def __init__(self, particles, initial_pose, noise_params=None):
-        self.last_pose = initial_pose
+        self.last_poses = initial_pose
         self.particles = particles
         #self.noise_params = np_array_or(noise_params,np.array([[0.1, 0.03], [0.1, 0.03], [0.3, 0.03]]))
         self.noise_params = np_array_or(noise_params,np.array([[0.0, 0.3], [0.0, 0.3], [0.0, 0.3]]))
@@ -19,9 +21,9 @@ class InternalOdometryMotionModel:
 
     def update(self, pose):
         # find delta between last pose in odometry-space
-        x1, y1, theta1 = self.last_pose
+        x1, y1, theta1 = self.last_poses
         x2, y2, theta2 = pose
-        self.last_pose = np.array(pose)
+        self.last_poses = np.array(pose)
 
         # transform odometry-space delta to local-relative-space delta
         local_relative_dx, local_relative_dy = rotate_2d(x2 - x1, y2 - y1, -theta1)
@@ -91,3 +93,86 @@ class InternalKinematicMotionModel:
         dy = control_speeds * np.sin(current_thetas)
         self.particles[:, 0] += dx * dt
         self.particles[:, 1] += dy * dt
+
+
+class InternalLearnedMotionModel:
+    def __init__(self, particles, prediction_model):
+        self.particles = particles
+        self.prediction_model = prediction_model.eval()
+
+        self.num_particles = particles.shape[0]
+
+        # columns: vx, vy, vtheta, sin(theta), cos(theta), control v, steering, dt
+        self.nn_inputs_np = np.zeros((self.particles.shape[0], 8))
+        self.nn_inputs_cuda = FloatTensor(self.particles.shape[0], 8).cuda()
+
+        self.last_poses = None
+
+    def update(self, control):
+        # compute delta pose
+        last_poses = self.last_poses if self.last_poses is not None else np.zeros((self.num_particles, 3))
+        current_poses = self.particles[:, :]
+        thetas = current_poses[:, 2]
+
+        # compute neural network inputs
+        self.nn_inputs_np[:, 0:3] = current_poses - last_poses
+        self.nn_inputs_np[:, 3] = np.sin(thetas)
+        self.nn_inputs_np[:, 4] = np.cos(thetas)
+        self.nn_inputs_np[:, 5] = control[0]
+        self.nn_inputs_np[:, 6] = control[1]
+        self.nn_inputs_np[:, 7] = control[2]
+
+        # push to gpu, compute
+        self.nn_inputs_cuda[:, :] = torch.from_numpy(self.nn_inputs_np)
+        nn_result = self.prediction_model(Variable(self.nn_inputs_cuda))
+        pose_delta = nn_result.data.cpu().numpy()
+
+        # apply update to particles
+        np.add(self.particles, pose_delta, out=self.particles)
+
+        # store current pose for future
+        self.last_poses = self.particles[:, :]
+
+
+class InternalLearnedKinematicMotionModel:
+    def __init__(self, particles, kinematic_motion_model, residual_model):
+        self.particles = particles
+        self.kinematic_motion_model = kinematic_motion_model
+        self.residual_model = residual_model.eval()
+
+        self.num_particles = particles.shape[0]
+
+        # columns: vx, vy, vtheta, sin(theta), cos(theta), control v, steering, dt
+        self.nn_inputs_np = np.zeros((self.particles.shape[0], 8))
+        self.nn_inputs_cuda = FloatTensor(self.particles.shape[0], 8).cuda()
+
+        self.last_poses = None
+
+    def update(self, control):
+        # compute delta pose and store current pose for future
+        last_poses = self.last_poses if self.last_poses is not None else np.zeros((self.num_particles, 3))
+        current_poses = self.particles[:, 0:3]
+        thetas = current_poses[:, 2]
+        self.last_poses = current_poses
+
+        # compute neural network inputs
+        self.nn_inputs_np[:, 0:3] = current_poses - last_poses
+        self.nn_inputs_np[:, 3] = np.sin(thetas)
+        self.nn_inputs_np[:, 4] = np.cos(thetas)
+        self.nn_inputs_np[:, 5] = control[0]
+        self.nn_inputs_np[:, 6] = control[1]
+        self.nn_inputs_np[:, 7] = control[2]
+
+        # push to gpu, compute
+        self.nn_inputs_cuda[:, :] = torch.from_numpy(self.nn_inputs_np)
+        nn_result = self.residual_model(Variable(self.nn_inputs_cuda))
+        pose_delta_residuals = nn_result.data.cpu().numpy()
+
+        # now apply kinematic model
+        self.kinematic_motion_model.update(control)
+
+        # and apply residuals on top of that
+        np.subtract(self.particles, pose_delta_residuals, out=self.particles)
+
+        # store current pose for future
+        self.last_poses = self.particles[:, :]

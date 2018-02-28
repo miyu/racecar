@@ -26,7 +26,7 @@ if CUDA:
     dtype = torch.cuda.FloatTensor
 else:
     dtype = torch.FloatTensor
-    
+
 CONTROL_SIZE = 2
 
 MODEL_FILENAME = 'tanh50k.pt'#'/home/nvidia/our_catkin_ws/src/lab3/src/tanh50k.pt'
@@ -76,9 +76,9 @@ class MPPIController:
     # you should pre-allocate GPU memory when you can, and re-use it when
     # possible for arrays storing your controls or calculated MPPI costs, etc
     if CUDA:
-        self.model = torch.load(MODEL_FILENAME)
+        self.model = torch.load(MODEL_FILENAME).eval()
     else:
-        self.model = torch.load(MODEL_FILENAME, map_location=lambda storage, loc: storage) # Maps CPU storage and serialized location back to CPU storage
+        self.model = torch.load(MODEL_FILENAME, map_location=lambda storage, loc: storage).eval() # Maps CPU storage and serialized location back to CPU storage
 
 
     sigma_data = [[1.0, 0.2], [0.2, 1.0]]
@@ -326,7 +326,7 @@ class MPPIController:
     new_lambda = mp._lambda * 0.99 # This wasn't in skeleton code: Decay Lambda
     mp.update_lambda(new_lambda) # This wasn't in skeleton code: Decay Lambda
     print('New Lambda: ', mp._lambda) # This wasn't in skeleton code: Decay Lambda
-    
+
     if self.last_pose is None:
       self.last_pose = np.array([msg.pose.position.x,
                                  msg.pose.position.y,
