@@ -1,12 +1,4 @@
 #!/usr/bin/env python
-import roslib; roslib.load_manifest('lab3')
-
-import lab1
-
-print(lab1.__path__)
-print(dir(lab1))
-
-
 import time
 import sys
 import rospy
@@ -23,7 +15,7 @@ from torch.autograd import Variable
 
 import matplotlib.pyplot as plt
 
-import lab1.InternalMotionModel
+from InternalMotionModel import InternalKinematicMotionModel
 
 
 PLOT_FLAG = True
@@ -49,7 +41,7 @@ OUTPUT_SIZE=3
 DATA_SIZE=6
 
 def load_raw_datas():
-    return np.load("/home/nvidia/our_catkin_ws/src/lab3/src/raw_datas.npy")
+    return np.load("../../lab3/src/raw_datas.npy")
 
     bag = rosbag.Bag(argv[1])
     tandt = bag.get_type_and_topic_info()
@@ -203,19 +195,35 @@ if PLOT_FLAG and False:
 # Is there a better way to get y_datas?
 ##############################################
 end_ind = len(x_datas)
-y_datas[:end_ind-1, 0:3] = x_datas[1:,0:3]
+
+# raw_datas = [ x, y, theta, v, delta, time]
+# We want to have:
+# x_datas[i,  :] = [x_dot, y_dot, theta_dot, sin(theta), cos(theta), v, delta, dt]
+# y_datas[i-1,:] = [x_dot, y_dot, theta_dot ]
+raw_y = x_datas[1:,0:3]
+
+initial_particles = raw_datas[0:-1, 0:3]
+final_particles = raw_datas[0:-1, 0:3]
+for i in range(initial_particles.shape[0]):
+    initial_particle = initial_particles[i, :].reshape(1, 3)
+    particle = initial_particles[i, :].reshape(1, 3)
+    motion_model = InternalKinematicMotionModel(particle, np.ones((2, 2)) * 1E-5)
+    motion_model.update([raw_datas[i, 3], raw_datas[i, 4], dt[i]])
+
+kinematic_delta = final_particles - initial_particles
+
+y_datas[:end_ind-1, 0:3] = kinematic_delta - raw_y
 
 # Make Training robust to stasis
-num_stasis_pad = 100
-x_zeros = np.zeros([num_stasis_pad, INPUT_SIZE])
-y_zeros = np.zeros([num_stasis_pad, OUTPUT_SIZE])
-pad_pose_thetas = np.random.uniform(0, np.pi * 2, num_stasis_pad)
-x_zeros[:, 3] = np.sin(pad_pose_thetas) # cos 0 = 1
-x_zeros[:, 4] = np.cos(pad_pose_thetas) # cos 0 = 1
-x_zeros[:, 7] = np.clip(np.random.normal(0.25, 0.1, num_stasis_pad), 0.001, 0.5) # dt = 0.1
-
-x_datas = np.append(x_datas, x_zeros, axis=0)
-y_datas = np.append(y_datas, y_zeros, axis=0)
+# num_stasis_pad = 100
+# x_zeros = np.zeros([num_stasis_pad, INPUT_SIZE])
+# y_zeros = np.zeros([num_stasis_pad, OUTPUT_SIZE])
+# pad_pose_thetas = np.random.uniform(0, np.pi * 2, num_stasis_pad)
+# x_zeros[:, 3] = np.sin(pad_pose_thetas) # cos 0 = 1
+# x_zeros[:, 4] = np.cos(pad_pose_thetas) # cos 0 = 1
+# x_zeros[:, 7] = np.clip(np.random.normal(0.25, 0.1, num_stasis_pad), 0.001, 0.5) # dt = 0.1
+# x_datas = np.append(x_datas, x_zeros, axis=0)
+# y_datas = np.append(y_datas, y_zeros, axis=0)
 
 # Convince yourself that input/output values are not strange
 print("Xdot  ", np.min(x_datas[:,0]), np.max(x_datas[:,0]))
@@ -282,7 +290,7 @@ opt = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0.0) #
 
 filename = 'tanh50k.pt'
 
-def doTraining(model, filename, optimizer, N=10000):
+def doTraining(model, filename, optimizer, N=500):
     x = torch.from_numpy(x_tr.astype('float32')).type(dtype)
     y = torch.from_numpy(y_tr.astype('float32')).type(dtype)
     x_val = torch.from_numpy(x_tt.astype('float32')).type(dtype)
@@ -344,17 +352,27 @@ def rollout(m, nn_input, N):
             pose[2] -= 2*np.pi
         if pose[2] < -3.14:
             pose[2] += 2*np.pi
+
         nn_input[0] = out.data[0]
         nn_input[1] = out.data[1]
         nn_input[2] = out.data[2]
         nn_input[3] = np.sin(pose[2])
         nn_input[4] = np.cos(pose[2])
 
-        s_values[0] += out.data[0]
+        initial_particle = np.array([s_values[0], s_values[1], s_values[2]]).reshape((1, 3))
+        single_particle = np.copy(initial_particle)
+        motion_model = InternalKinematicMotionModel(single_particle, np.ones((2, 2)) * 1E-5)
+        motion_model.update([nn_input[5], nn_input[6], nn_input[7]])
+        kinematic_delta_particle = (single_particle - initial_particle).reshape((3,))
+        nn_residual = np.array([out.data[0], out.data[1], out.data[2]])
+
+        delta_particle = kinematic_delta_particle - nn_residual
+
+        s_values[0] += delta_particle[0]
         x.append(s_values[0])
-        s_values[1] += out.data[1]
+        s_values[1] += delta_particle[1]
         y.append(s_values[1])
-        s_values[2] += out.data[2]
+        s_values[2] += delta_particle[2]
         theta.append(s_values[2])
         s_values[3] += 0.1
         t.append(s_values[3])
