@@ -140,6 +140,10 @@ class MPPIController:
         self.pose_sub  = rospy.Subscriber("/pf/ta/viz/inferred_pose",
                 PoseStamped, self.mppi_cb, queue_size=1)
 
+
+  def update_lambda(self, new_lambda):
+    self._lambda = new_lambda
+
   # TODO
   # You may want to debug your bounds checking code here, by clicking on a part
   # of the map and convincing yourself that you are correctly mapping the
@@ -165,17 +169,22 @@ class MPPIController:
     bounds_check = 0.0
     ctrl_cost = 0.0 # We can tweak this later
 
-    print('First Pose: ', pose[0, :])
-    print('Goal: ', goal)
+    # print('First Pose: ', pose[0, :])
+    # print('Goal: ', goal)
 
     dx = pose[:, 0] - goal[0]
     dy = pose[:, 1] - goal[1]
     dtheta = torch.fmod(pose[:, 2] - goal[2], np.pi * 2)
     dtheta -= (dtheta >= np.pi).type(self.dtype) * 2 * np.pi
+    dtheta *= 0.2
     #) - (np.pi), np.pi * 2) + np.pi
 
+    distance = torch.sqrt(torch.pow(dx, 2) + torch.pow(dy, 2))
+
     # + torch.pow(dtheta, 2)
-    pose_cost = torch.sqrt(torch.pow(dx, 2) + torch.pow(dy, 2))
+    pose_cost = torch.sqrt(torch.pow(distance, 2) + torch.pow(dtheta, 2))
+
+    # print("and costs:", pose_cost)
 
     if IS_ON_ROBOT:
         map_pose = Utils.world_to_map(pose, self.map_info)
@@ -242,6 +251,8 @@ class MPPIController:
         x_t = x_tminus1 + neural_net_output.data
         # x_t shape: (K, 3)
 
+        # print("@t", t, x_t)
+
         u_tminus1 = self.U[:,0,t-1].view(1, CONTROL_SIZE)
         # u_tminus1 shape: (1, CONTROL_SIZE)
         intermediate = torch.mm(u_tminus1, self.SigmaInv)
@@ -255,7 +266,7 @@ class MPPIController:
         # Lambda: Scalar
 
         current_cost = self.running_cost(x_t, self.goal).view(1, self.K)
-        print('COST: ', current_cost)
+        # print('COST: ', current_cost)
         self.Trajectory_cost += current_cost + intermediate
         #print('Current Cost Size: ', current_cost.size())
 
@@ -289,10 +300,18 @@ class MPPIController:
         self.U[:, :, t] += delta_control
         # self.U[:, :, t] shape: (CONTROL_SIZE, K)
 
-    run_ctrl = self.U[:, 0, 0]
+    # print("Validate U:", self.U)
+
+    controls = noisyU[:, :, 0]
+    # print("Controls:", controls)
+    # print("Trajectory costs:", self.Trajectory_cost)
+    best_cost, best_index = torch.min(self.Trajectory_cost, 1)
+    # print("Best index: ", best_index, "has cost", best_cost)
+    run_ctrl = controls[:, best_index]
+    # print("Which is control", run_ctrl)
     # run_ctrl shape: (CONTROL_SIZE)
 
-    print("MPPI: %4.5f ms" % ((time.time()-t0)*1000.0))
+    # print("MPPI: %4.5f ms" % ((time.time()-t0)*1000.0))
 
     return run_ctrl, poses
 
@@ -326,11 +345,12 @@ class MPPIController:
                          np.cos(theta), 0.0, 0.0, dt])
 
     run_ctrl, poses = mppi(curr_pose, nn_input)
+    run_ctrl_np = run_ctrl.cpu().numpy().reshape((2,))
 
     self.U[:,:,0:self.T-1] = self.U[:,:,1:self.T]
     self.U[:,:,self.T-1] = 0.0
 
-    self.send_controls( run_ctrl[0], run_ctrl[1] )
+    self.send_controls( run_ctrl_np[0], run_ctrl_np[1] )
 
 
     self.visualize(poses)
@@ -368,7 +388,10 @@ def test_MPPI(mp, N, goal=np.array([0.,0.,0.])):
     print("Now:", pose)
   print("End:", pose)
 
-def small_test_MPPI(mp, motion_model):
+def small_test_MPPI(mp, motion_model, i):
+  new_lambda = mp._lambda * 0.99 # * np.exp(-i / 4.0)
+  mp.update_lambda(new_lambda)
+  print('New Lambda: ', mp._lambda)
   if mp.last_pose is None:
     mp.last_pose = np.array([0., 0., 0.])
     mp.lasttime = time.time()
@@ -385,18 +408,27 @@ def small_test_MPPI(mp, motion_model):
 
   pose_dot[2] = wrap_pi_pi_number(pose_dot[2])
 
+  # print("Pose dot: ", pose_dot)
+
   if mp.last_control is None:
       nn_input = np.array([pose_dot[0], pose_dot[1], pose_dot[2], np.sin(theta), np.cos(theta), 0.0, 0.0, dt])
   else:
       nn_input = np.array([pose_dot[0], pose_dot[1], pose_dot[2], np.sin(theta), np.cos(theta), mp.last_control[0], mp.last_control[1], dt])
 
+  # print("NN input", nn_input)
+
   run_ctrl, poses = mp.mppi(curr_pose, nn_input)
+  run_ctrl_np = run_ctrl.cpu().numpy().reshape((2,))
+
+  # print("Decided control", run_ctrl_np)
 
   mp.U[:,:,0:mp.T-1] = mp.U[:,:,1:mp.T]
   mp.U[:,:,mp.T-1] = 0.0
 
-  motion_model.update([run_ctrl[0], run_ctrl[1], dt]) # Speed, Steering, dt
+  motion_model.update([run_ctrl_np[0], run_ctrl_np[1], dt]) # Speed, Steering, dt
   mp.last_control = run_ctrl
+
+  print("Moved with control", run_ctrl_np, "to", motion_model.particles[0], " ", wrap_pi_pi_number(motion_model.particles[0][2]))
 
 if __name__ == '__main__':
   if CUDA:
@@ -404,8 +436,8 @@ if __name__ == '__main__':
   else:
     print('CUDA is NOT available')
 
-  T = 2#30
-  K = 1000
+  T = 5
+  K = 10000
   sigma = 0.5 # These values will need to be tuned
   _lambda = 1e-4#1.0
 
@@ -417,13 +449,15 @@ if __name__ == '__main__':
   # test & DEBUG
   mp = MPPIController(T, K, sigma, _lambda)
   if CUDA:
-      mp.goal = torch.cuda.FloatTensor([1., 0., 0.])
+      mp.goal = torch.cuda.FloatTensor([2., 2., 0.])
   else:
       mp.goal = torch.FloatTensor([2., 2., 0.])
   nparticles = 1#1000
   particles = np.zeros((nparticles, 3), dtype=float)
   motion_model = InternalKinematicMotionModel(particles, np.array([[0.0, 0.003], [0.0, 0.003]]), useNoise=False)
-  # while(True):
-  small_test_MPPI(mp, motion_model)
-  small_test_MPPI(mp, motion_model)
+  i = 1
+  while(True):
+      small_test_MPPI(mp, motion_model, i)
+      i += 1
+  # small_test_MPPI(mp, motion_model)
   #test_MPPI(mp, 10, np.array([0.,0.,0.]))
