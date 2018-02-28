@@ -289,7 +289,7 @@ loss_fn = torch.nn.MSELoss(size_average=False)
 learning_rate = 3e-3
 opt = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0.0) #learning_rate)
 
-filename = 'tanh50k.pt'
+filename = 'KinematicDropout0.13Itr5k.pt'
 
 def doTraining(model, filename, optimizer, N=5000):
     x = torch.from_numpy(x_tr.astype('float32')).type(dtype)
@@ -329,7 +329,9 @@ def doTraining(model, filename, optimizer, N=5000):
 
     torch.save(model, filename)
 
-doTraining(model, filename, opt)
+# doTraining(model, filename, opt)
+model = torch.load(filename)
+model = model.cuda()
 
 
 # The following are functions meant for debugging and sanity checking your
@@ -347,7 +349,18 @@ def rollout(m, nn_input, N):
     print(pose.cpu().numpy())
     for i in range(N):
         out = m(Variable(nn_input))
-        pose.add_(out.data)
+
+        initial_particle = np.array([s_values[0], s_values[1], s_values[2]]).reshape((1, 3))
+        single_particle = np.copy(initial_particle)
+        motion_model = InternalKinematicMotionModel(single_particle, np.ones((2, 2)) * 1E-5)
+        motion_model.update([nn_input[5], nn_input[6], nn_input[7]])
+        kinematic_delta_particle = (single_particle - initial_particle).reshape((3,))
+        nn_residual = np.array([out.data[0], out.data[1], out.data[2]])
+        delta_particle = kinematic_delta_particle - nn_residual
+
+        #pose.add_(out.data)
+        pose.add_(torch.from_numpy(delta_particle).type(dtype))
+
         # Wrap pi
         if pose[2] > 3.14:
             pose[2] -= 2*np.pi
@@ -360,15 +373,6 @@ def rollout(m, nn_input, N):
         nn_input[3] = np.sin(pose[2])
         nn_input[4] = np.cos(pose[2])
 
-        initial_particle = np.array([s_values[0], s_values[1], s_values[2]]).reshape((1, 3))
-        single_particle = np.copy(initial_particle)
-        motion_model = InternalKinematicMotionModel(single_particle, np.ones((2, 2)) * 1E-5)
-        motion_model.update([nn_input[5], nn_input[6], nn_input[7]])
-        kinematic_delta_particle = (single_particle - initial_particle).reshape((3,))
-        nn_residual = np.array([out.data[0], out.data[1], out.data[2]])
-
-        delta_particle = kinematic_delta_particle - nn_residual
-
         s_values[0] += delta_particle[0]
         x.append(s_values[0])
         s_values[1] += delta_particle[1]
@@ -377,17 +381,19 @@ def rollout(m, nn_input, N):
         theta.append(s_values[2])
         s_values[3] += 0.1
         t.append(s_values[3])
+    return (x, y, theta, t)
 
-        print(pose.cpu().numpy())
-        if i != 0 and i % 20 == 0:
-            plt.plot(t, x)
-            plt.show()
-            plt.plot(t, y)
-            plt.show()
-            plt.plot(t, theta)
-            plt.show()
-            plt.plot(x, y)
-            plt.show()
+        # print(pose.cpu().numpy())
+        # if i != 0 and i % 10 == 0:
+        #     plt.plot(t, x)
+        #     plt.show()
+        #     plt.plot(t, y)
+        #     plt.show()
+        #     plt.plot(t, theta)
+        #     plt.show()
+        #     plt.plot(x, y)
+        #     plt.show()
+        #     return
 
 
 def test_model(m, N, dt = 0.1):
@@ -397,14 +403,39 @@ def test_model(m, N, dt = 0.1):
     nn_input = torch.zeros(s).cuda()
     nn_input[cos] = 1.0
     nn_input[7] = dt
-    rollout(m, nn_input, N)
+    idle_xs, idle_ys, idle_thetas, idle_ts = rollout(m, nn_input, N)
 
     print("Forward")
     nn_input = torch.zeros(s).cuda()
     nn_input[cos] = 1.0
     nn_input[v] = 0.7 #1.0
     nn_input[7] = dt
-    rollout(m, nn_input, N)
+    forward_xs, forward_ys, forward_thetas, forward_ts = rollout(m, nn_input, N)
 
+    print("Backward")
+    nn_input = torch.zeros(s).cuda()
+    nn_input[cos] = 1.0
+    nn_input[v] = -0.7 #1.0
+    nn_input[7] = dt
+    backward_xs, backward_ys, backward_thetas, backward_ts = rollout(m, nn_input, N)
 
-test_model(model, 21)
+    print("Left Turn")
+    nn_input = torch.zeros(s).cuda()
+    nn_input[cos] = 1.0
+    nn_input[v] = 0.7 #1.0
+    nn_input[st] = 0.26
+    nn_input[7] = dt
+    left_xs, left_ys, left_thetas, left_ts = rollout(m, nn_input, N)
+
+    print("Right Turn")
+    nn_input = torch.zeros(s).cuda()
+    nn_input[cos] = 1.0
+    nn_input[v] = 0.7 #1.0
+    nn_input[st] = -0.26
+    nn_input[7] = dt
+    right_xs, right_ys, right_thetas, right_ts = rollout(m, nn_input, N)
+
+    plt.plot(idle_xs, idle_ys, "r", forward_xs, forward_ys, "g", backward_xs, backward_ys, "b", left_xs, left_ys, "y", right_xs, right_ys, "k")
+    plt.show()
+
+test_model(model, 11)
