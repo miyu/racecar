@@ -202,13 +202,14 @@ end_ind = len(x_datas)
 # y_datas[i-1,:] = [x_dot, y_dot, theta_dot ]
 raw_y = x_datas[1:,0:3]
 
-initial_particles = raw_datas[0:-1, 0:3]
-final_particles = raw_datas[0:-1, 0:3]
+initial_particles = raw_datas[0:end_ind-1, 0:3]
+final_particles = raw_datas[0:end_ind-1, 0:3]
 for i in range(initial_particles.shape[0]):
     initial_particle = initial_particles[i, :].reshape(1, 3)
     particle = initial_particles[i, :].reshape(1, 3)
     motion_model = InternalKinematicMotionModel(particle, np.ones((2, 2)) * 1E-5)
     motion_model.update([raw_datas[i, 3], raw_datas[i, 4], dt[i]])
+    final_particles[i, :] = particle[0, :]
 
 kinematic_delta = final_particles - initial_particles
 
@@ -290,7 +291,7 @@ opt = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0.0) #
 
 filename = 'tanh50k.pt'
 
-def doTraining(model, filename, optimizer, N=500):
+def doTraining(model, filename, optimizer, N=5000):
     x = torch.from_numpy(x_tr.astype('float32')).type(dtype)
     y = torch.from_numpy(y_tr.astype('float32')).type(dtype)
     x_val = torch.from_numpy(x_tt.astype('float32')).type(dtype)
