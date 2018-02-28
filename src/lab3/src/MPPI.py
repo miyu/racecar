@@ -22,9 +22,14 @@ if IS_ON_ROBOT:
     from geometry_msgs.msg import PoseStamped, PoseArray, PoseWithCovarianceStamped, PointStamped
 
 CUDA = torch.cuda.is_available()
+if CUDA:
+    dtype = torch.cuda.FloatTensor
+else:
+    dtype = torch.FloatTensor
+    
 CONTROL_SIZE = 2
 
-MODEL_FILENAME = '/home/nvidia/our_catkin_ws/src/lab3/src/tanh50k.pt'
+MODEL_FILENAME = 'tanh50k.pt'#'/home/nvidia/our_catkin_ws/src/lab3/src/tanh50k.pt'
 
 def wrap_pi_pi_number(x):
     x = np.fmod(x, np.pi * 2) + np.pi * 4
@@ -34,9 +39,9 @@ def wrap_pi_pi_number(x):
     return x
 
 def wrap_pi_pi_tensor(x):
-    x = torch.fmod(x, np.pi * 2) + np.pi * 4
     x = torch.fmod(x, np.pi * 2)
-    x -= (x >= np.pi).type(self.dtype) * 2 * np.pi
+    x *= ((0 <= x) * (x < 2*np.pi)).type(dtype)
+    x -= (x > np.pi).type(dtype) * 2 * np.pi
     return x
 
 class MPPIController:
@@ -105,7 +110,7 @@ class MPPIController:
 
     # Store last control input
     self.last_control = None
-    # visualization paramters
+    # visualization parameters
     self.num_viz_paths = 40
     if self.K < self.num_viz_paths:
         self.num_viz_paths = self.K
@@ -174,14 +179,11 @@ class MPPIController:
 
     dx = pose[:, 0] - goal[0]
     dy = pose[:, 1] - goal[1]
-    dtheta = torch.fmod(pose[:, 2] - goal[2], np.pi * 2)
-    dtheta -= (dtheta >= np.pi).type(self.dtype) * 2 * np.pi
-    dtheta *= 0.2
-    #) - (np.pi), np.pi * 2) + np.pi
+    dtheta = wrap_pi_pi_tensor(pose[:, 2] - goal[2])
+    dtheta *= 0.1
 
     distance = torch.sqrt(torch.pow(dx, 2) + torch.pow(dy, 2))
 
-    # + torch.pow(dtheta, 2)
     pose_cost = torch.sqrt(torch.pow(distance, 2) + torch.pow(dtheta, 2))
 
     # print("and costs:", pose_cost)
@@ -204,7 +206,7 @@ class MPPIController:
     # combine that noise with your central control sequence
     # Perform rollouts with those controls from your current pose
     # Calculate costs for each of K trajectories
-    # Perform the MPPI weighting on your calculatd costs
+    # Perform the MPPI weighting on your calculated costs
     # Scale the added noise by the weighting and add to your control sequence
     # Apply the first control values, and shift your control trajectory
 
@@ -223,7 +225,7 @@ class MPPIController:
         poses = torch.cuda.FloatTensor(self.T, 3).zero_()
         self.Trajectory_cost = torch.cuda.FloatTensor(1, self.K).zero_()
     else:
-        poses = torch.cuda.FloatTensor(self.T, 3).zero_()
+        poses = torch.FloatTensor(self.T, 3).zero_()
         self.Trajectory_cost = torch.FloatTensor(1, self.K).zero_()
     self.Epsilon.normal_(std=self.sigma)
     # Epsilon shape: (CONTROL_SIZE, K, T)
@@ -253,7 +255,10 @@ class MPPIController:
 
         # print("@t", t, x_t)
 
-        u_tminus1 = self.U[:,0,t-1].view(1, CONTROL_SIZE)
+        if CUDA:
+            u_tminus1 = self.U[:,0,t-1].view(1, CONTROL_SIZE)
+        else:
+            u_tminus1 = self.U[:,0,t-1].contiguous().view(1, CONTROL_SIZE)
         # u_tminus1 shape: (1, CONTROL_SIZE)
         intermediate = torch.mm(u_tminus1, self.SigmaInv)
         # self.Sigma shape: (CONTROL_SIZE, CONTROL_SIZE)
@@ -318,7 +323,10 @@ class MPPIController:
   # Reads Particle Filter Messages
   # ALSO do we need to make sure our Thetas are between -pi and pi???????
   def mppi_cb(self, msg):
-    #print("callback")
+    new_lambda = mp._lambda * 0.99 # This wasn't in skeleton code: Decay Lambda
+    mp.update_lambda(new_lambda) # This wasn't in skeleton code: Decay Lambda
+    print('New Lambda: ', mp._lambda) # This wasn't in skeleton code: Decay Lambda
+    
     if self.last_pose is None:
       self.last_pose = np.array([msg.pose.position.x,
                                  msg.pose.position.y,
@@ -335,6 +343,7 @@ class MPPIController:
                           theta])
 
     pose_dot = curr_pose - self.last_pose # get state
+    pose_dot[2] = wrap_pi_pi_number(pose_dot[2]) # This was not in skeleton code: Clamp Theta between -pi and pi
     self.last_pose = curr_pose
 
     timenow = msg.header.stamp.to_sec()
@@ -345,12 +354,13 @@ class MPPIController:
                          np.cos(theta), 0.0, 0.0, dt])
 
     run_ctrl, poses = mppi(curr_pose, nn_input)
-    run_ctrl_np = run_ctrl.cpu().numpy().reshape((2,))
+    run_ctrl = run_ctrl.view(CONTROL_SIZE)
+    #run_ctrl_np = run_ctrl.cpu().numpy().reshape((2,))
 
     self.U[:,:,0:self.T-1] = self.U[:,:,1:self.T]
     self.U[:,:,self.T-1] = 0.0
 
-    self.send_controls( run_ctrl_np[0], run_ctrl_np[1] )
+    self.send_controls( run_ctrl[0], run_ctrl[1] )
 
 
     self.visualize(poses)
@@ -410,7 +420,7 @@ def small_test_MPPI(mp, motion_model, i):
 
   # print("Pose dot: ", pose_dot)
 
-  if mp.last_control is None:
+  if True:#mp.last_control is None: TURNS OUT MOVING WITH PURE NOISE WORKS A LOT BETTER
       nn_input = np.array([pose_dot[0], pose_dot[1], pose_dot[2], np.sin(theta), np.cos(theta), 0.0, 0.0, dt])
   else:
       nn_input = np.array([pose_dot[0], pose_dot[1], pose_dot[2], np.sin(theta), np.cos(theta), mp.last_control[0], mp.last_control[1], dt])
@@ -418,17 +428,17 @@ def small_test_MPPI(mp, motion_model, i):
   # print("NN input", nn_input)
 
   run_ctrl, poses = mp.mppi(curr_pose, nn_input)
-  run_ctrl_np = run_ctrl.cpu().numpy().reshape((2,))
+  run_ctrl = run_ctrl.view(CONTROL_SIZE)
 
-  # print("Decided control", run_ctrl_np)
+  print("Decided control", run_ctrl)
 
   mp.U[:,:,0:mp.T-1] = mp.U[:,:,1:mp.T]
   mp.U[:,:,mp.T-1] = 0.0
 
-  motion_model.update([run_ctrl_np[0], run_ctrl_np[1], dt]) # Speed, Steering, dt
+  motion_model.update([run_ctrl[0], run_ctrl[1], dt]) # Speed, Steering, dt
   mp.last_control = run_ctrl
 
-  print("Moved with control", run_ctrl_np, "to", motion_model.particles[0], " ", wrap_pi_pi_number(motion_model.particles[0][2]))
+  print("Moved with control", run_ctrl, "to", motion_model.particles[0], " ", wrap_pi_pi_number(motion_model.particles[0][2]))
 
 if __name__ == '__main__':
   if CUDA:
@@ -439,25 +449,24 @@ if __name__ == '__main__':
   T = 5
   K = 10000
   sigma = 0.5 # These values will need to be tuned
-  _lambda = 1e-4#1.0
+  _lambda = 1e-4 # 1.0
 
-  # run with ROS
-  #rospy.init_node("mppi_control", anonymous=True) # Initialize the node
-  #mp = MPPIController(T, K, sigma, _lambda)
-  #rospy.spin()
-
-  # test & DEBUG
-  mp = MPPIController(T, K, sigma, _lambda)
-  if CUDA:
-      mp.goal = torch.cuda.FloatTensor([2., 2., 0.])
+  if IS_ON_ROBOT:
+    rospy.init_node("mppi_control", anonymous=True) # Initialize the node
+    mp = MPPIController(T, K, sigma, _lambda)
+    rospy.spin()
   else:
-      mp.goal = torch.FloatTensor([2., 2., 0.])
-  nparticles = 1#1000
-  particles = np.zeros((nparticles, 3), dtype=float)
-  motion_model = InternalKinematicMotionModel(particles, np.array([[0.0, 0.003], [0.0, 0.003]]), useNoise=False)
-  i = 1
-  while(True):
-      small_test_MPPI(mp, motion_model, i)
-      i += 1
-  # small_test_MPPI(mp, motion_model)
-  #test_MPPI(mp, 10, np.array([0.,0.,0.]))
+    # test & DEBUG
+    mp = MPPIController(T, K, sigma, _lambda)
+    if CUDA:
+        mp.goal = torch.cuda.FloatTensor([2., 2., 0.])
+    else:
+        mp.goal = torch.FloatTensor([2., 2., 0.])
+    nparticles = 1#1000
+    particles = np.zeros((nparticles, 3), dtype=float)
+    motion_model = InternalKinematicMotionModel(particles, np.array([[0.0, 0.003], [0.0, 0.003]]), useNoise=False)
+    i = 1
+    while(True):
+        small_test_MPPI(mp, motion_model, i)
+        i += 1
+    #test_MPPI(mp, 10, np.array([0.,0.,0.]))
