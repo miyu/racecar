@@ -217,8 +217,8 @@ class MPPIController:
     # dprint("and costs:", pose_cost)
 
     tprepermissible = time.time()
-    grid_poses = pose.clone() #.cpu().numpy()
-    if IS_ON_ROBOT and False:
+    grid_poses = self.dtype(pose.size()) #.cpu().numpy()
+    if IS_ON_ROBOT:
         Utils.world_to_map(grid_poses, self.map_info)
         # dprint('Grid Poses: ', grid_poses)
         permissibles = self.permissible_region[grid_poses[:, 0], grid_poses[:, 1]]

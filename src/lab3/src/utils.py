@@ -102,4 +102,3 @@ def world_to_map(poses, map_info):
     poses[:,0] = c*poses[:,0] - s*poses[:,1]
     poses[:,1] = s*temp       + c*poses[:,1]
     poses[:,2] += angle
-
