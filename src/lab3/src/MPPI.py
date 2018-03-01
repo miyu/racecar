@@ -156,6 +156,10 @@ class MPPIController:
         self.permissible_region[array_255==0] = 1 # Numpy array of dimension (map_msg.info.height, map_msg.info.width),
                                                   # With values 0: not permissible, 1: permissible
         self.permissible_region = np.negative(self.permissible_region) # 0 is permissible, 1 is not
+        self.permissible_region_torch = torch.from_numpy(
+            self.permissible_region.astype(float) \
+                .reshape((map_msg.info.height * map_msg.info.width,))
+            ).type(self.dtype)
 
         print("Making callbacks")
         self.goal_sub = rospy.Subscriber("/move_base_simple/goal",
@@ -221,8 +225,16 @@ class MPPIController:
     if IS_ON_ROBOT:
         Utils.world_to_map(grid_poses, self.map_info)
         # dprint('Grid Poses: ', grid_poses)
-        permissibles = self.permissible_region[grid_poses[:, 0], grid_poses[:, 1]]
-        # bounds_check = torch.from_numpy(permissibles.astype(float) * 1E5).type(self.dtype)
+        # 0 is permissible, 1 is not
+
+        indices = grid_poses[:, 1].clone() # cast this to an int and it'll work
+        indices.floor_()
+        indices.mul_(self.map_info.width)
+        indices.add_(grid_poses[:, 0])
+
+        # index y then x, but I flattened so now y * w + x
+        permissibles = self.permissible_region_torch[indices]
+        bounds_check = permissibles * 1E3
         # dprint('Permissibles Size: ', permissibles.shape)
         # dprint('Permissible Region: ', self.permissible_region)
         # dprint(temp_pose, self.map_info)
