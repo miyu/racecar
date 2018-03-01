@@ -29,7 +29,7 @@ else:
 
 CONTROL_SIZE = 2
 
-MODEL_FILENAME = '/home/nvidia/our_catkin_ws/src/lab3/src/tanh50k.pt'
+MODEL_FILENAME = '/home/nvidia/our_catkin_ws/src/lab3/src/relu5k.pt'
 
 def wrap_pi_pi_number(x):
     x = np.fmod(x, np.pi * 2) + np.pi * 4
@@ -76,9 +76,9 @@ class MPPIController:
     # you should pre-allocate GPU memory when you can, and re-use it when
     # possible for arrays storing your controls or calculated MPPI costs, etc
     if CUDA:
-        self.model = torch.load(MODEL_FILENAME)
+        self.model = torch.load(MODEL_FILENAME).eval()
     else:
-        self.model = torch.load(MODEL_FILENAME, map_location=lambda storage, loc: storage) # Maps CPU storage and serialized location back to CPU storage
+        self.model = torch.load(MODEL_FILENAME, map_location=lambda storage, loc: storage).eval() # Maps CPU storage and serialized location back to CPU storage
 
 
     sigma_data = [[1.0, 0.2], [0.2, 1.0]]
@@ -182,19 +182,23 @@ class MPPIController:
     dtheta = wrap_pi_pi_tensor(pose[:, 2] - goal[2])
     dtheta *= 0.1
 
+    print("dx", dx)
+    print("dy", dy)
+
     distance = torch.sqrt(torch.pow(dx, 2) + torch.pow(dy, 2))
 
-    pose_cost = torch.sqrt(torch.pow(distance, 2) + torch.pow(dtheta, 2))
+    # pose_cost = torch.sqrt(torch.pow(distance, 2) + torch.pow(dtheta, 2))
+    pose_cost = distance
 
     # print("and costs:", pose_cost)
 
     grid_poses = pose.clone() #.cpu().numpy()
     if IS_ON_ROBOT:
         Utils.world_to_map(grid_poses, self.map_info)
-        print('Grid Poses: ', grid_poses)
+        # print('Grid Poses: ', grid_poses)
         permissibles = self.permissible_region[grid_poses[:, 0], grid_poses[:, 1]]
-        bounds_check = torch.from_numpy(permissibles.astype(float) * 1E5).type(self.dtype)
-        print('Permissibles Size: ', permissibles.shape)
+        # bounds_check = torch.from_numpy(permissibles.astype(float) * 1E5).type(self.dtype)
+        # print('Permissibles Size: ', permissibles.shape)
         # print('Permissible Region: ', self.permissible_region)
         # print(temp_pose, self.map_info)
         # if self.permissible_region[int(temp_pose[0,0])][int(temp_pose[0,1])]:
@@ -229,15 +233,22 @@ class MPPIController:
     # between inferred-poses from the particle filter.
 
     if CUDA:
-        poses = torch.cuda.FloatTensor(self.T, 3).zero_()
+        trajectories = torch.cuda.FloatTensor(self.K, self.T, 3).zero_()
         self.Trajectory_cost = torch.cuda.FloatTensor(1, self.K).zero_()
     else:
-        poses = torch.FloatTensor(self.T, 3).zero_()
+        trajectories = torch.FloatTensor(self.K, self.T, 3).zero_()
         self.Trajectory_cost = torch.FloatTensor(1, self.K).zero_()
     self.Epsilon.normal_(std=self.sigma)
     # Epsilon shape: (CONTROL_SIZE, K, T)
     noisyU = self.U + self.Epsilon # self.U -> All K samples SHOULD BE IDENTICAL
     # noisyU shape: (CONTROL_SIZE, K, T)
+
+    noisyU[:, :, :] = 0
+    for t in range(self.T):
+        noisyU[:, 0, t] = torch.cuda.FloatTensor([0.7, 0])
+        noisyU[:, 1, t] = torch.cuda.FloatTensor([-0.7, 0])
+        noisyU[:, 2, t] = torch.cuda.FloatTensor([0.7, -0.25])
+        noisyU[:, 3, t] = torch.cuda.FloatTensor([0.7, 0.25])
 
     neural_net_input = np.tile(neural_net_input, (self.K, 1)) # We should convert these numpy operations to CUDA later
     # neural_net_input shape: (8) -> (K, 8)
@@ -248,6 +259,10 @@ class MPPIController:
     x_tminus1 = torch.from_numpy(np.tile(init_pose, (self.K, 1)).astype('float32')).type(self.dtype)
     # x_tminus1 shape: (K, 3)
 
+    trajectories[:, 0, :] = x_tminus1
+
+    print("TOWARD", self.goal)
+
     for t in range(1, self.T):
         #print('Neural Net Input Size: ', neural_net_input_torch.size())
         #print('Noisy U Size:', noisyU.size())
@@ -255,12 +270,15 @@ class MPPIController:
         neural_net_input_torch[:, 6] = noisyU[1, :, t-1]
 
         neural_net_output = self.model(Variable(neural_net_input_torch))
+        deltas = neural_net_output.data
         # neural_net_output shape: (K, 3)
 
-        x_t = x_tminus1 + neural_net_output.data
+        print("Inputs:", neural_net_input_torch)
+        print("Deltas:", deltas)
+        print("@t-1:", t, x_tminus1)
+        x_t = x_tminus1 + deltas
         # x_t shape: (K, 3)
-
-        # print("@t", t, x_t)
+        # print("@t:", t, x_t)
 
         if CUDA:
             u_tminus1 = self.U[:,0,t-1].view(1, CONTROL_SIZE)
@@ -273,19 +291,22 @@ class MPPIController:
         # intermediate shape: (1, CONTROL_SIZE)
 
         intermediate = self._lambda * torch.mm(intermediate, self.Epsilon[:,:,t-1])
+        intermediate[:, :] = 0
         # self.Epsilon[:,:,t-1] shape: (CONTROL_SIZE, K)
         # intermediate shape: (1, K)
         # Lambda: Scalar
 
         current_cost = self.running_cost(x_t, self.goal).view(1, self.K)
-        # print('COST: ', current_cost)
+        print('COST: ', current_cost)
         self.Trajectory_cost += current_cost + intermediate
+        print("Intermediate: ", intermediate)
         #print('Current Cost Size: ', current_cost.size())
 
         # running_cost: want this to be (1, K)
         # self._lambda * intermediate: (1, K)
         # self.Trajectory_cost shape: (1, K)
 
+        trajectories[:, t, :] = x_t
         x_tminus1 = x_t
 
     beta = torch.min(self.Trajectory_cost)
@@ -315,24 +336,24 @@ class MPPIController:
     # print("Validate U:", self.U)
 
     controls = noisyU[:, :, 0]
-    # print("Controls:", controls)
-    # print("Trajectory costs:", self.Trajectory_cost)
+    print("Controls:", controls)
+    print("Trajectory costs:", self.Trajectory_cost)
     best_cost, best_index = torch.min(self.Trajectory_cost, 1)
-    # print("Best index: ", best_index, "has cost", best_cost)
+    print("Best index: ", best_index, "has cost", best_cost)
     run_ctrl = controls[:, best_index]
     # print("Which is control", run_ctrl)
     # run_ctrl shape: (CONTROL_SIZE)
 
-    # print("MPPI: %4.5f ms" % ((time.time()-t0)*1000.0))
-
-    return run_ctrl, poses
+    # print("MPPI: %4.5f ms" % ((time.time()-t0)*1000.0))00
+    best_trajectory_indices = [x for x in reversed(sorted(range(self.K), key=lambda i: self.Trajectory_cost[0, i]))]
+    return run_ctrl, trajectories[best_trajectory_indices]
 
   # Reads Particle Filter Messages
   # ALSO do we need to make sure our Thetas are between -pi and pi???????
   def mppi_cb(self, msg):
-    new_lambda = mp._lambda * 0.99 # This wasn't in skeleton code: Decay Lambda
-    mp.update_lambda(new_lambda) # This wasn't in skeleton code: Decay Lambda
-    print('New Lambda: ', mp._lambda) # This wasn't in skeleton code: Decay Lambda
+    # new_lambda = mp._lambda * 0.99 # This wasn't in skeleton code: Decay Lambda
+    # mp.update_lambda(new_lambda) # This wasn't in skeleton code: Decay Lambda
+    # print('New Lambda: ', mp._lambda) # This wasn't in skeleton code: Decay Lambda
 
     if self.last_pose is None:
       self.last_pose = np.array([msg.pose.position.x,
@@ -349,12 +370,15 @@ class MPPIController:
                           msg.pose.position.y,
                           theta])
 
+    print("Got mppi_cb: ", msg, curr_pose)
+
     pose_dot = curr_pose - self.last_pose # get state
     pose_dot[2] = wrap_pi_pi_number(pose_dot[2]) # This was not in skeleton code: Clamp Theta between -pi and pi
     self.last_pose = curr_pose
 
     timenow = msg.header.stamp.to_sec()
     dt = timenow - self.lasttime
+    dt = 0.1 # from dt to 0.1
     self.lasttime = timenow
     nn_input = np.array([pose_dot[0], pose_dot[1], pose_dot[2],
                          np.sin(theta),
@@ -406,8 +430,8 @@ def test_MPPI(mp, N, goal=np.array([0.,0.,0.])):
   print("End:", pose)
 
 def small_test_MPPI(mp, motion_model, i):
-  new_lambda = mp._lambda * 0.99 # * np.exp(-i / 4.0)
-  mp.update_lambda(new_lambda)
+  # new_lambda = mp._lambda * 0.99 # * np.exp(-i / 4.0)
+  # mp.update_lambda(new_lambda)
   print('New Lambda: ', mp._lambda)
   if mp.last_pose is None:
     mp.last_pose = np.array([0., 0., 0.])
@@ -453,10 +477,10 @@ if __name__ == '__main__':
   else:
     print('CUDA is NOT available')
 
-  T = 5
-  K = 10000
+  T = 2
+  K = 8
   sigma = 0.5 # These values will need to be tuned
-  _lambda = 1e-4 # 1.0
+  _lambda = 1 # 0.1 #1e-4 # 1.0
 
   if IS_ON_ROBOT:
     rospy.init_node("mppi_control", anonymous=True) # Initialize the node
