@@ -271,7 +271,10 @@ class MPPIController:
     # print("Yields traj", trajectories)
     print("TOWARD", self.goal)
 
+    tinit = time.time() # 2ms
+
     for t in range(1, self.T):
+        # ti0 = time.time()
         #dprint('Neural Net Input Size: ', neural_net_input_torch.size())
         #dprint('Noisy U Size:', noisyU.size())
         neural_net_input_torch[:, 3] = torch.sin(x_tminus1[:, 2])
@@ -280,7 +283,10 @@ class MPPIController:
         neural_net_input_torch[:, 5] = noisyU[0, :, t-1]
         neural_net_input_torch[:, 6] = noisyU[1, :, t-1]
 
+        # ti_prenn = time.time()
         neural_net_output = self.model(Variable(neural_net_input_torch))
+        # ti_postnn = time.time()
+
         deltas = neural_net_output.data
         # neural_net_output shape: (K, 3)
 
@@ -297,6 +303,9 @@ class MPPIController:
             u_tminus1 = self.U[:,0,t-1].view(1, CONTROL_SIZE)
         else:
             u_tminus1 = self.U[:,0,t-1].contiguous().view(1, CONTROL_SIZE)
+
+        # ti_preint = time.time()
+
         # u_tminus1 shape: (1, CONTROL_SIZE)
         intermediate = torch.mm(u_tminus1, self.SigmaInv)
         # self.Sigma shape: (CONTROL_SIZE, CONTROL_SIZE)
@@ -311,6 +320,8 @@ class MPPIController:
 
         current_cost = self.running_cost(x_t, self.goal).view(1, self.K)
         dprint('COST: ', current_cost)
+
+        # ti_pretrajc = time.time()
         self.Trajectory_cost += current_cost + intermediate
         dprint("Intermediate: ", intermediate)
         #dprint('Current Cost Size: ', current_cost.size())
@@ -320,7 +331,12 @@ class MPPIController:
         # self.Trajectory_cost shape: (1, K)
 
         trajectories[:, :, t] = x_t.transpose(0, 1)
+
+        # ti_finalizing = time.time()
         x_tminus1 = x_t
+        # print("iter", t, ": ", ti_prenn - ti0, " ", ti_postnn - ti_prenn, " ", ti_preint - ti_postnn, " ", ti_pretrajc - ti_preint, " ", ti_finalizing - ti_pretrajc)
+
+    titered = time.time() #200ms
 
     beta = torch.min(self.Trajectory_cost)
     #dprint('Beta: ', beta)
@@ -347,6 +363,7 @@ class MPPIController:
         # self.U[:, :, t] shape: (CONTROL_SIZE, K)
 
     # dprint("Validate U:", self.U)
+    tuupdated = time.time() # 7ms
 
     controls = noisyU[:, :, 0]
     dprint("Controls:", controls)
@@ -358,7 +375,13 @@ class MPPIController:
     # run_ctrl shape: (CONTROL_SIZE)
 
     # dprint("MPPI: %4.5f ms" % ((time.time()-t0)*1000.0))00
+    tending = time.time() #0.2ms
+
     best_trajectory_indices = [x for x in reversed(sorted(range(self.K), key=lambda i: self.Trajectory_cost[0, i]))]
+    tfinal = time.time() #12ms
+
+    # tinit titered tuupdated tending tfinal
+    print("Benchmark", (tinit - t0), " ", (titered - tinit), " ", (tuupdated - titered), " ", (tending - tuupdated), " ", (tfinal - tending))
     return run_ctrl, trajectories[:, best_trajectory_indices, :]
 
   # Reads Particle Filter Messages
