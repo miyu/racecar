@@ -124,7 +124,7 @@ class MPPIController:
     if IS_ON_ROBOT:
         # We will publish control messages and a way to visualize a subset of our
         # rollouts, much like the particle filter
-        self.ctrl_pub = rospy.Publisher(rospy.get_param("~ctrl_topic", "/vesc/high_level/ackermann_cmd_mux/input/nav0"),
+        self.ctrl_pub = rospy.Publisher(rospy.get_param("~ctrl_topic", "/vesc/high_level/ackermann_cmd_mux/input/nav_0"),
                 AckermannDriveStamped, queue_size=2)
         self.path_pub = rospy.Publisher("/mppi/paths", Path, queue_size = self.num_viz_paths)
 
@@ -239,10 +239,10 @@ class MPPIController:
     # between inferred-poses from the particle filter.
 
     if CUDA:
-        trajectories = torch.cuda.FloatTensor(self.K, self.T, 3).zero_()
+        trajectories = torch.cuda.FloatTensor(3, self.K, self.T).zero_()
         self.Trajectory_cost = torch.cuda.FloatTensor(1, self.K).zero_()
     else:
-        trajectories = torch.FloatTensor(self.K, self.T, 3).zero_()
+        trajectories = torch.FloatTensor(3, self.K, self.T).zero_()
         self.Trajectory_cost = torch.FloatTensor(1, self.K).zero_()
     self.Epsilon[0, :, :].normal_(std=self.sigma[0])
     self.Epsilon[1, :, :].normal_(std=self.sigma[1])
@@ -266,9 +266,10 @@ class MPPIController:
     x_tminus1 = torch.from_numpy(np.tile(init_pose, (self.K, 1)).astype('float32')).type(self.dtype)
     # x_tminus1 shape: (K, 3)
 
-    trajectories[:, 0, :] = x_tminus1
-
-    dprint("TOWARD", self.goal)
+    # print("X_initial", x_tminus1)
+    trajectories[:, :, 0] = x_tminus1.transpose(0, 1)
+    # print("Yields traj", trajectories)
+    print("TOWARD", self.goal)
 
     for t in range(1, self.T):
         #dprint('Neural Net Input Size: ', neural_net_input_torch.size())
@@ -298,7 +299,7 @@ class MPPIController:
         # intermediate shape: (1, CONTROL_SIZE)
 
         intermediate = self._lambda * torch.mm(intermediate, self.Epsilon[:,:,t-1])
-        intermediate[:, :] = 0
+        # intermediate[:, :] = 0
         # self.Epsilon[:,:,t-1] shape: (CONTROL_SIZE, K)
         # intermediate shape: (1, K)
         # Lambda: Scalar
@@ -313,7 +314,7 @@ class MPPIController:
         # self._lambda * intermediate: (1, K)
         # self.Trajectory_cost shape: (1, K)
 
-        trajectories[:, t, :] = x_t
+        trajectories[:, :, t] = x_t.transpose(0, 1)
         x_tminus1 = x_t
 
     beta = torch.min(self.Trajectory_cost)
@@ -353,7 +354,7 @@ class MPPIController:
 
     # dprint("MPPI: %4.5f ms" % ((time.time()-t0)*1000.0))00
     best_trajectory_indices = [x for x in reversed(sorted(range(self.K), key=lambda i: self.Trajectory_cost[0, i]))]
-    return run_ctrl, trajectories[best_trajectory_indices]
+    return run_ctrl, trajectories[:, best_trajectory_indices, :]
 
   # Reads Particle Filter Messages
   # ALSO do we need to make sure our Thetas are between -pi and pi???????
@@ -420,7 +421,11 @@ class MPPIController:
       for i in range(0, self.num_viz_paths):
         pa = Path()
         pa.header = Utils.make_header(frame_id)
-        pa.poses = map(Utils.particle_to_posestamped, poses[i,:,:], [frame_id]*self.T)
+        particle_trajectory = poses[:,i,:] # indexed [pose, particle, time]
+        particle_trajectory = torch.from_numpy(particle_trajectory.cpu().numpy().transpose())
+        if i == 0:
+          print("trajectory", i, ": ", particle_trajectory)
+        pa.poses = map(Utils.particle_to_posestamped, particle_trajectory, [frame_id]*self.T)
         self.path_pub.publish(pa)
 
 def test_MPPI(mp, N, goal=np.array([0.,0.,0.])):
