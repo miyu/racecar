@@ -52,14 +52,13 @@ def wrap_pi_pi_tensor(x):
     # x -= (x > np.pi).type(dtype) * 2 * np.pi
     # return x
 
-
 def dprint(*args):
     #print(args)
     pass
 
 
 def benchprint(n, *args):
-    if n == 0:
+    if n == 5:
         print(args)
 
 class MPPIController:
@@ -145,6 +144,7 @@ class MPPIController:
         print("Getting map from service: ", map_service_name)
         rospy.wait_for_service(map_service_name)
         map_msg = rospy.ServiceProxy(map_service_name, GetMap)().map # The map, will get passed to init of sensor model
+        self.map_data = torch.cuda.LongTensor(map_msg.data)
         self.map_info = map_msg.info # Save info about map for later use
         print("Map Information:\n",self.map_info)
 
@@ -167,6 +167,28 @@ class MPPIController:
         self.pose_sub  = rospy.Subscriber("/pf/viz/inferred_pose",
                 PoseStamped, self.mppi_cb, queue_size=1)
 
+  def out_of_bounds(self, pose):
+    grid_poses = pose.clone().view(1,3)
+    print('World Poses: ', grid_poses)
+    Utils.world_to_map(grid_poses, self.map_info)
+    print('Grid Poses: ', grid_poses)
+    grid_poses.round_()
+    grid_x = grid_poses[0][0]
+    grid_y = grid_poses[0][1]
+    if self.map_data[int(int(round(grid_x)) + int(round(grid_y)) * self.map_info.width)] == -1:
+        print('Pose is invalid!!!!')
+    else:
+        print('Pose is valid!!!')
+
+  def out_of_bounds_poses(self, poses):
+    grid_poses = poses.clone()
+    print('World Poses: ', grid_poses)
+    Utils.world_to_map(grid_poses, self.map_info)
+    print('Grid Poses: ', grid_poses)
+    grid_poses.round_()
+    grid_poses = grid_poses.type(torch.cuda.LongTensor)
+    return self.map_data[grid_poses[:,0] + grid_poses[:,1] * self.map_info.width]
+    # output should be 0's if valid, -1 if invalid
 
   def update_lambda(self, new_lambda):
     self._lambda = new_lambda
@@ -179,8 +201,13 @@ class MPPIController:
     self.goal = self.dtype([msg.pose.position.x,
                           msg.pose.position.y,
                           Utils.quaternion_to_angle(msg.pose.orientation)])
+    self.goal2 = self.dtype([[msg.pose.position.x,
+                          msg.pose.position.y,
+                          Utils.quaternion_to_angle(msg.pose.orientation)]])
     print("Current Pose: ", self.last_pose)
     print("SETTING Goal: ", self.goal)
+    #self.out_of_bounds(self.goal)
+    self.out_of_bounds_poses(self.goal2)
 
   def running_cost(self, pose, goal, ctrl=None, noise=None):
     # TODO
@@ -223,7 +250,8 @@ class MPPIController:
     tprepermissible = time.time()
     grid_poses = self.dtype(pose.size()) #.cpu().numpy()
     if IS_ON_ROBOT:
-        Utils.world_to_map(grid_poses, self.map_info)
+        #Utils.world_to_map(grid_poses, self.map_info)
+
         # dprint('Grid Poses: ', grid_poses)
         # 0 is permissible, 1 is not
 
@@ -231,6 +259,7 @@ class MPPIController:
         indices.floor_()
         indices.mul_(self.map_info.width)
         indices.add_(grid_poses[:, 0])
+        indices = indices.type(torch.cuda.LongTensor)
 
         # index y then x, but I flattened so now y * w + x
         permissibles = self.permissible_region_torch[indices]
@@ -245,7 +274,7 @@ class MPPIController:
 
     tfinal = time.time()
 
-    benchprint(2, "calc", (tprewrap - t0), " ", (tsqrt - tprewrap), " ", (tprepermissible - tsqrt), " ", tfinal - tprepermissible)
+    benchprint(0, "calc", (tprewrap - t0), " ", (tsqrt - tprewrap), " ", (tprepermissible - tsqrt), " ", tfinal - tprepermissible)
     return pose_cost + ctrl_cost + bounds_check
 
   def mppi(self, init_pose, neural_net_input):
