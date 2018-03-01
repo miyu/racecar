@@ -274,12 +274,17 @@ class MPPIController:
     for t in range(1, self.T):
         #dprint('Neural Net Input Size: ', neural_net_input_torch.size())
         #dprint('Noisy U Size:', noisyU.size())
+        neural_net_input_torch[:, 3] = torch.sin(x_tminus1[:, 2])
+        neural_net_input_torch[:, 4] = torch.cos(x_tminus1[:, 2])
+
         neural_net_input_torch[:, 5] = noisyU[0, :, t-1]
         neural_net_input_torch[:, 6] = noisyU[1, :, t-1]
 
         neural_net_output = self.model(Variable(neural_net_input_torch))
         deltas = neural_net_output.data
         # neural_net_output shape: (K, 3)
+
+        neural_net_input_torch[:, 0:3] = deltas
 
         dprint("Inputs:", neural_net_input_torch)
         dprint("Deltas:", deltas)
@@ -397,8 +402,18 @@ class MPPIController:
     #run_ctrl_np = run_ctrl.cpu().numpy().reshape((2,))
 
     self.U[:,:,0:self.T-1] = self.U[:,:,1:self.T]
-    self.U[0,:,self.T-1] = torch.from_numpy(np.random.uniform(-1, 1, (self.K)))
-    self.U[1,:,self.T-1] = torch.from_numpy(np.random.uniform(-0.28, 0.28, (self.K)))
+    self.U[:,:,self.T-1] = 0
+
+    # seed_speeds = torch.from_numpy(np.random.uniform(-1.0, 1.0, (self.K))).type(self.dtype)
+    # seed_steerings = torch.from_numpy(np.random.uniform(-0.28, 0.28, (self.K))).type(self.dtype)
+    # w = 0.15
+    # self.U[0,:,self.T-1] = self.U[0,:,self.T-1] * (1.0 - w) + seed_speeds * w
+    # self.U[1,:,self.T-1] = self.U[1,:,self.T-1] * (1.0 - w) + seed_steerings * w
+
+    # self.U[0,:,self.T-1] = torch.from_numpy(np.random.uniform(-1, 1, (self.K)))
+    # self.U[1,:,self.T-1] = torch.from_numpy(np.random.uniform(-0.28, 0.28, (self.K)))
+    # self.U[0,:,self.T-1] = torch.from_numpy(np.random.uniform(-1, 1, (self.K)))
+    # self.U[1,:,self.T-1] = torch.from_numpy(np.random.uniform(-0.28, 0.28, (self.K)))
 
     self.send_controls( run_ctrl[0], run_ctrl[1] )
 
@@ -490,9 +505,9 @@ if __name__ == '__main__':
   else:
     print('CUDA is NOT available')
 
-  T = 10
+  T = 40
   K = 100
-  sigma = [0.1, 0.01] # These values will need to be tuned
+  sigma = [0.1, 0.1] # These values will need to be tuned
   _lambda = 1 # 0.1 #1e-4 # 1.0
 
   if IS_ON_ROBOT:
