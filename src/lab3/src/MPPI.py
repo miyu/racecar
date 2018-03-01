@@ -10,7 +10,7 @@ import torch.utils.data
 from torch.autograd import Variable
 from InternalMotionModel import InternalKinematicMotionModel
 
-IS_ON_ROBOT = False
+IS_ON_ROBOT = True
 
 if IS_ON_ROBOT:
     import rospy
@@ -26,10 +26,10 @@ if CUDA:
     dtype = torch.cuda.FloatTensor
 else:
     dtype = torch.FloatTensor
-    
+
 CONTROL_SIZE = 2
 
-MODEL_FILENAME = 'tanh50k.pt'#'/home/nvidia/our_catkin_ws/src/lab3/src/tanh50k.pt'
+MODEL_FILENAME = '/home/nvidia/our_catkin_ws/src/lab3/src/tanh50k.pt'
 
 def wrap_pi_pi_number(x):
     x = np.fmod(x, np.pi * 2) + np.pi * 4
@@ -142,7 +142,7 @@ class MPPIController:
         print("Making callbacks")
         self.goal_sub = rospy.Subscriber("/move_base_simple/goal",
                 PoseStamped, self.clicked_goal_cb, queue_size=1)
-        self.pose_sub  = rospy.Subscriber("/pf/ta/viz/inferred_pose",
+        self.pose_sub  = rospy.Subscriber("/pf/viz/inferred_pose",
                 PoseStamped, self.mppi_cb, queue_size=1)
 
 
@@ -188,10 +188,17 @@ class MPPIController:
 
     # print("and costs:", pose_cost)
 
+    grid_poses = pose.clone() #.cpu().numpy()
     if IS_ON_ROBOT:
-        map_pose = Utils.world_to_map(pose, self.map_info)
-        if self.permissible_region[int(map_pose[0][0])][int(map_pose[0][1])] != 0:
-            bounds_check = 1.0e5
+        Utils.world_to_map(grid_poses, self.map_info)
+        print('Grid Poses: ', grid_poses)
+        permissibles = self.permissible_region[grid_poses[:, 0], grid_poses[:, 1]]
+        bounds_check = torch.from_numpy(permissibles.astype(float) * 1E5).type(self.dtype)
+        print('Permissibles Size: ', permissibles.shape)
+        # print('Permissible Region: ', self.permissible_region)
+        # print(temp_pose, self.map_info)
+        # if self.permissible_region[int(temp_pose[0,0])][int(temp_pose[0,1])]:
+        #     bounds_check = 1.0e5
 
     return pose_cost + ctrl_cost + bounds_check
 
@@ -326,7 +333,7 @@ class MPPIController:
     new_lambda = mp._lambda * 0.99 # This wasn't in skeleton code: Decay Lambda
     mp.update_lambda(new_lambda) # This wasn't in skeleton code: Decay Lambda
     print('New Lambda: ', mp._lambda) # This wasn't in skeleton code: Decay Lambda
-    
+
     if self.last_pose is None:
       self.last_pose = np.array([msg.pose.position.x,
                                  msg.pose.position.y,
@@ -353,7 +360,7 @@ class MPPIController:
                          np.sin(theta),
                          np.cos(theta), 0.0, 0.0, dt])
 
-    run_ctrl, poses = mppi(curr_pose, nn_input)
+    run_ctrl, poses = self.mppi(curr_pose, nn_input)
     run_ctrl = run_ctrl.view(CONTROL_SIZE)
     #run_ctrl_np = run_ctrl.cpu().numpy().reshape((2,))
 

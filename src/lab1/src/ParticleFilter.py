@@ -93,7 +93,7 @@ class ParticleFilter():
 		world_x = grid_x * map_msg.info.resolution + map_msg.info.origin.position.x
 		world_y = grid_y * map_msg.info.resolution + map_msg.info.origin.position.y
                 self.map_free_space.append((world_x, world_y))
- 
+
 
         for i in range(0, self.MAX_PARTICLES):
             ind = random.randint(0, len(self.map_free_space) - 1) #who the hell does an inclsuive end of range? omg
