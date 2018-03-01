@@ -1,12 +1,6 @@
 #!/usr/bin/env python
 import roslib; roslib.load_manifest('lab3')
 
-import lab1
-
-print(lab1.__path__)
-print(dir(lab1))
-
-
 import time
 import sys
 import rospy
@@ -22,8 +16,6 @@ import torch.utils.data
 from torch.autograd import Variable
 
 import matplotlib.pyplot as plt
-
-import lab1.InternalMotionModel
 
 
 PLOT_FLAG = True
@@ -320,8 +312,20 @@ def doTraining(model, filename, optimizer, N=10000):
 
     torch.save(model, filename)
 
-doTraining(model, filename, opt)
+#doTraining(model, filename, opt)
+model = torch.load(filename)
+model = model.cuda()
+def error(model):
+    x = torch.from_numpy(x_tr.astype('float32')).type(dtype)
+    y = torch.from_numpy(y_tr.astype('float32')).type(dtype)
+    x_val = torch.from_numpy(x_tt.astype('float32')).type(dtype)
+    y_val = torch.from_numpy(y_tt.astype('float32')).type(dtype)
 
+    val_pred = model(Variable(x_val))
+    error = val_pred.cpu().data.numpy() - y_val.numpy()
+    return np.mean(np.absolute(error))
+
+print(error(model))
 
 # The following are functions meant for debugging and sanity checking your
 # model. You should use these and / or design your own testing tools.
@@ -358,17 +362,17 @@ def rollout(m, nn_input, N):
         theta.append(s_values[2])
         s_values[3] += 0.1
         t.append(s_values[3])
-
-        print(pose.cpu().numpy())
-        if i != 0 and i % 20 == 0:
-            plt.plot(t, x)
-            plt.show()
-            plt.plot(t, y)
-            plt.show()
-            plt.plot(t, theta)
-            plt.show()
-            plt.plot(x, y)
-            plt.show()
+    return (x, y, theta, t)
+        # print(pose.cpu().numpy())
+        # if i != 0 and i % 20 == 0:
+        #     plt.plot(t, x)
+        #     plt.show()
+        #     plt.plot(t, y)
+        #     plt.show()
+        #     plt.plot(t, theta)
+        #     plt.show()
+        #     plt.plot(x, y)
+        #     plt.show()
 
 
 def test_model(m, N, dt = 0.1):
@@ -378,14 +382,40 @@ def test_model(m, N, dt = 0.1):
     nn_input = torch.zeros(s).cuda()
     nn_input[cos] = 1.0
     nn_input[7] = dt
-    rollout(m, nn_input, N)
+    idle_xs, idle_ys, idle_thetas, idle_ts = rollout(m, nn_input, N)
 
     print("Forward")
     nn_input = torch.zeros(s).cuda()
     nn_input[cos] = 1.0
     nn_input[v] = 0.7 #1.0
     nn_input[7] = dt
-    rollout(m, nn_input, N)
+    forward_xs, forward_ys, forward_thetas, forward_ts = rollout(m, nn_input, N)
+
+    print("Backward")
+    nn_input = torch.zeros(s).cuda()
+    nn_input[cos] = 1.0
+    nn_input[v] = -0.7 #1.0
+    nn_input[7] = dt
+    backward_xs, backward_ys, backward_thetas, backward_ts = rollout(m, nn_input, N)
+
+    print("Left Turn")
+    nn_input = torch.zeros(s).cuda()
+    nn_input[cos] = 1.0
+    nn_input[v] = 0.7 #1.0
+    nn_input[st] = 0.26
+    nn_input[7] = dt
+    left_xs, left_ys, left_thetas, left_ts = rollout(m, nn_input, N)
+
+    print("Right Turn")
+    nn_input = torch.zeros(s).cuda()
+    nn_input[cos] = 1.0
+    nn_input[v] = 0.7 #1.0
+    nn_input[st] = -0.26
+    nn_input[7] = dt
+    right_xs, right_ys, right_thetas, right_ts = rollout(m, nn_input, N)
+
+    plt.plot(idle_xs, idle_ys, "r", forward_xs, forward_ys, "g", backward_xs, backward_ys, "b", left_xs, left_ys, "y", right_xs, right_ys, "k")
+    plt.show()
 
 
-test_model(model, 21)
+test_model(model, 11)

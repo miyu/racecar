@@ -387,9 +387,15 @@ class MPPIController:
   # Reads Particle Filter Messages
   # ALSO do we need to make sure our Thetas are between -pi and pi???????
   def mppi_cb(self, msg):
+<<<<<<< HEAD
     # new_lambda = mp._lambda * 0.99 # This wasn't in skeleton code: Decay Lambda
     # mp.update_lambda(new_lambda) # This wasn't in skeleton code: Decay Lambda
     # dprint('New Lambda: ', mp._lambda) # This wasn't in skeleton code: Decay Lambda
+=======
+    new_lambda = mp._lambda * 0.99 # This wasn't in skeleton code: Decay Lambda
+    mp.update_lambda(new_lambda) # This wasn't in skeleton code: Decay Lambda
+    print('New Lambda: ', mp._lambda) # This wasn't in skeleton code: Decay Lambda
+>>>>>>> 21dbd194ed32bc107b2346cc39a8cc25431b9e24
 
     if self.last_pose is None:
       self.last_pose = np.array([msg.pose.position.x,
