@@ -41,8 +41,8 @@ class OdometryMotionModel:
         print_benchmark("odometry motion_cb", start_time, time.time())
         self.state_lock.release()
 
-class KinematicMotionModel:
-    def __init__(self, particles=None, state_lock=None):
+class KinematicLikeMotionModel:
+    def __init__(self, particles=None, state_lock=None, internal_motion_model=None):
         # state tracking
         self.last_servo_cmd = None # The most recent servo command
         self.last_vesc_stamp = None # The time stamp from the previous vesc state msg
@@ -62,7 +62,7 @@ class KinematicMotionModel:
 
         # init internal kinematic model
         particles = np_array_or(particles, np.array([[0, 0, 0]], dtype=np.float64))
-        self.inner = InternalKinematicMotionModel(particles)
+        self.inner = internal_motion_model if internal_motion_model is not None else InternalKinematicMotionModel(particles)
 
     def servo_cb(self, msg):
         self.state_lock.acquire()
@@ -102,6 +102,8 @@ class KinematicMotionModel:
         print_locks("Releasing lock motion_cb")
         print_benchmark("kinematic motion_cb", start_time, time.time())
         self.state_lock.release()
+
+KinematicMotionModel = KinematicLikeMotionModel
 
 if __name__ == '__main__':
     rospy.init_node('OdoTest1', anonymous=True)

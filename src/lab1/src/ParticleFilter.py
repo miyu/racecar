@@ -19,7 +19,8 @@ from geometry_msgs.msg import PoseStamped, PoseArray, PoseWithCovarianceStamped,
 
 from ReSample import ReSampler
 from SensorModel import SensorModel
-from MotionModel import OdometryMotionModel, KinematicMotionModel
+from MotionModel import OdometryMotionModel, KinematicMotionModel, KinematicLikeMotionModel
+from InternalMotionModel import InternalKinematicMotionModel, InternalLearnedMotionModel, InternalLearnedKinematicMotionModel
 
 import random
 from Debug import print_locks, print_benchmark
@@ -76,6 +77,17 @@ class ParticleFilter():
         elif self.MOTION_MODEL_TYPE == "odometry":
             self.motion_model = OdometryMotionModel(self.particles, self.state_lock)# An object used for applying odometry motion model
             self.motion_sub = rospy.Subscriber(rospy.get_param("~motion_topic", "/vesc/odom"), Odometry, self.motion_model.motion_cb, queue_size=1)
+        elif self.MOTION_MODEL_TYPE == "learned":
+            from TorchInclude import torch
+            learned_motion_model = InternalLearnedMotionModel(self.particles, torch.load("../../lab3/src/tanh50k.pt"))
+            self.motion_model = KinematicLikeMotionModel(self.particles, self.state_lock, learned_motion_model)
+            self.motion_sub = rospy.Subscriber(rospy.get_param("~motion_topic", "/vesc/sensors/core"), VescStateStamped, self.motion_model.motion_cb, queue_size=1)
+        elif self.MOTION_MODEL_TYPE == "learned_kinematic":
+            from TorchInclude import torch
+            kinematic_motion_model = InternalKinematicMotionModel(particles)
+            learned_kinematic_motion_model = InternalLearnedKinematicMotionModel(self.particles, kinematic_motion_model, torch.load("../../lab1/src/KinematicDropout0.13Itr5k.pt"))
+            self.motion_model = KinematicLikeMotionModel(self.particles, self.state_lock, learned_kinematic_motion_model)
+            self.motion_sub = rospy.Subscriber(rospy.get_param("~motion_topic", "/vesc/sensors/core"), VescStateStamped, self.motion_model.motion_cb, queue_size=1)
         else:
             print "Unrecognized motion model: "+ self.MOTION_MODEL_TYPE
             assert(False)
@@ -93,7 +105,7 @@ class ParticleFilter():
 		world_x = grid_x * map_msg.info.resolution + map_msg.info.origin.position.x
 		world_y = grid_y * map_msg.info.resolution + map_msg.info.origin.position.y
                 self.map_free_space.append((world_x, world_y))
- 
+
 
         for i in range(0, self.MAX_PARTICLES):
             ind = random.randint(0, len(self.map_free_space) - 1) #who the hell does an inclsuive end of range? omg
