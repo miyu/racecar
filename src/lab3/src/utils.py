@@ -98,7 +98,7 @@ def world_to_map(poses, map_info):
     # rotation
     c, s = np.cos(angle), np.sin(angle)
     # we need to store the x coordinates since they will be overwritten
-    temp = np.copy(poses[:,0])
+    temp = poses[:,0].clone()
     poses[:,0] = c*poses[:,0] - s*poses[:,1]
     poses[:,1] = s*temp       + c*poses[:,1]
     poses[:,2] += angle
