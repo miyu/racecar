@@ -44,6 +44,12 @@ def wrap_pi_pi_tensor(x):
     x -= (x > np.pi).type(dtype) * 2 * np.pi
     return x
 
+
+def dprint(*args):
+    #print(args)
+    pass
+
+
 class MPPIController:
 
   def __init__(self, T, K, sigma=0.5, _lambda=0.5):
@@ -182,25 +188,25 @@ class MPPIController:
     dtheta = wrap_pi_pi_tensor(pose[:, 2] - goal[2])
     dtheta *= 0.1
 
-    print("dx", dx)
-    print("dy", dy)
+    dprint("dx", dx)
+    dprint("dy", dy)
 
     distance = torch.sqrt(torch.pow(dx, 2) + torch.pow(dy, 2))
 
     # pose_cost = torch.sqrt(torch.pow(distance, 2) + torch.pow(dtheta, 2))
     pose_cost = distance
 
-    # print("and costs:", pose_cost)
+    # dprint("and costs:", pose_cost)
 
     grid_poses = pose.clone() #.cpu().numpy()
     if IS_ON_ROBOT:
         Utils.world_to_map(grid_poses, self.map_info)
-        # print('Grid Poses: ', grid_poses)
+        # dprint('Grid Poses: ', grid_poses)
         permissibles = self.permissible_region[grid_poses[:, 0], grid_poses[:, 1]]
         # bounds_check = torch.from_numpy(permissibles.astype(float) * 1E5).type(self.dtype)
-        # print('Permissibles Size: ', permissibles.shape)
-        # print('Permissible Region: ', self.permissible_region)
-        # print(temp_pose, self.map_info)
+        # dprint('Permissibles Size: ', permissibles.shape)
+        # dprint('Permissible Region: ', self.permissible_region)
+        # dprint(temp_pose, self.map_info)
         # if self.permissible_region[int(temp_pose[0,0])][int(temp_pose[0,1])]:
         #     bounds_check = 1.0e5
 
@@ -244,12 +250,12 @@ class MPPIController:
     noisyU = self.U + self.Epsilon # self.U -> All K samples SHOULD BE IDENTICAL
     # noisyU shape: (CONTROL_SIZE, K, T)
 
-    noisyU[:, :, :] = 0
-    for t in range(self.T):
-        noisyU[:, 0, t] = torch.cuda.FloatTensor([0.7, 0])
-        noisyU[:, 1, t] = torch.cuda.FloatTensor([-0.7, 0])
-        noisyU[:, 2, t] = torch.cuda.FloatTensor([0.7, -0.25])
-        noisyU[:, 3, t] = torch.cuda.FloatTensor([0.7, 0.25])
+    # noisyU[:, :, :] = 0
+    # for t in range(self.T):
+    #     noisyU[:, 0, t] = torch.cuda.FloatTensor([0.7, 0])
+    #     noisyU[:, 1, t] = torch.cuda.FloatTensor([-0.7, 0])
+    #     noisyU[:, 2, t] = torch.cuda.FloatTensor([0.7, -0.25])
+    #     noisyU[:, 3, t] = torch.cuda.FloatTensor([0.7, 0.25])
 
     neural_net_input = np.tile(neural_net_input, (self.K, 1)) # We should convert these numpy operations to CUDA later
     # neural_net_input shape: (8) -> (K, 8)
@@ -262,11 +268,11 @@ class MPPIController:
 
     trajectories[:, 0, :] = x_tminus1
 
-    print("TOWARD", self.goal)
+    dprint("TOWARD", self.goal)
 
     for t in range(1, self.T):
-        #print('Neural Net Input Size: ', neural_net_input_torch.size())
-        #print('Noisy U Size:', noisyU.size())
+        #dprint('Neural Net Input Size: ', neural_net_input_torch.size())
+        #dprint('Noisy U Size:', noisyU.size())
         neural_net_input_torch[:, 5] = noisyU[0, :, t-1]
         neural_net_input_torch[:, 6] = noisyU[1, :, t-1]
 
@@ -274,12 +280,12 @@ class MPPIController:
         deltas = neural_net_output.data
         # neural_net_output shape: (K, 3)
 
-        print("Inputs:", neural_net_input_torch)
-        print("Deltas:", deltas)
-        print("@t-1:", t, x_tminus1)
+        dprint("Inputs:", neural_net_input_torch)
+        dprint("Deltas:", deltas)
+        dprint("@t-1:", t, x_tminus1)
         x_t = x_tminus1 + deltas
         # x_t shape: (K, 3)
-        # print("@t:", t, x_t)
+        # dprint("@t:", t, x_t)
 
         if CUDA:
             u_tminus1 = self.U[:,0,t-1].view(1, CONTROL_SIZE)
@@ -292,16 +298,16 @@ class MPPIController:
         # intermediate shape: (1, CONTROL_SIZE)
 
         intermediate = self._lambda * torch.mm(intermediate, self.Epsilon[:,:,t-1])
-        # intermediate[:, :] = 0
+        intermediate[:, :] = 0
         # self.Epsilon[:,:,t-1] shape: (CONTROL_SIZE, K)
         # intermediate shape: (1, K)
         # Lambda: Scalar
 
         current_cost = self.running_cost(x_t, self.goal).view(1, self.K)
-        print('COST: ', current_cost)
+        dprint('COST: ', current_cost)
         self.Trajectory_cost += current_cost + intermediate
-        print("Intermediate: ", intermediate)
-        #print('Current Cost Size: ', current_cost.size())
+        dprint("Intermediate: ", intermediate)
+        #dprint('Current Cost Size: ', current_cost.size())
 
         # running_cost: want this to be (1, K)
         # self._lambda * intermediate: (1, K)
@@ -311,41 +317,41 @@ class MPPIController:
         x_tminus1 = x_t
 
     beta = torch.min(self.Trajectory_cost)
-    #print('Beta: ', beta)
+    #dprint('Beta: ', beta)
     trajectoryMinusMin = self.Trajectory_cost - beta
     trajectoryMinusMin *= (-1.0 / self._lambda)
-    #print('Trajectory - Beta: ', trajectoryMinusMin)
+    #dprint('Trajectory - Beta: ', trajectoryMinusMin)
     n = torch.sum(torch.exp(trajectoryMinusMin))
-    #print('n: ', n)
+    #dprint('n: ', n)
     omega = (1.0/ n) * torch.exp(trajectoryMinusMin)
-    #print('omega: ', omega)
+    #dprint('omega: ', omega)
     # omega shape: (1, K)
 
     for t in range(self.T):
         omega = omega.expand(CONTROL_SIZE, -1) # Check this!
-        #print('Omega shape: ', omega.size())
-        #print('Omega: ', omega)
+        #dprint('Omega shape: ', omega.size())
+        #dprint('Omega: ', omega)
         # omega shape: (CONTROL_SIZE, K)
         delta_control = torch.sum(omega * self.Epsilon[:,:,t], dim=1).view(CONTROL_SIZE, 1)
-        #print('Delta Control: ', delta_control)
-        #print('Delta control shape: ', delta_control.size())
+        #dprint('Delta Control: ', delta_control)
+        #dprint('Delta control shape: ', delta_control.size())
         # self.Epsilon[:, :, t] shape: (CONTROL_SIZE, K)
         # delta_control shape: (CONTROL_SIZE, 1)
         self.U[:, :, t] += delta_control
         # self.U[:, :, t] shape: (CONTROL_SIZE, K)
 
-    # print("Validate U:", self.U)
+    # dprint("Validate U:", self.U)
 
     controls = noisyU[:, :, 0]
-    print("Controls:", controls)
-    print("Trajectory costs:", self.Trajectory_cost)
+    dprint("Controls:", controls)
+    dprint("Trajectory costs:", self.Trajectory_cost)
     best_cost, best_index = torch.min(self.Trajectory_cost, 1)
-    print("Best index: ", best_index, "has cost", best_cost)
+    dprint("Best index: ", best_index, "has cost", best_cost)
     run_ctrl = controls[:, best_index]
-    # print("Which is control", run_ctrl)
+    # dprint("Which is control", run_ctrl)
     # run_ctrl shape: (CONTROL_SIZE)
 
-    # print("MPPI: %4.5f ms" % ((time.time()-t0)*1000.0))00
+    # dprint("MPPI: %4.5f ms" % ((time.time()-t0)*1000.0))00
     best_trajectory_indices = [x for x in reversed(sorted(range(self.K), key=lambda i: self.Trajectory_cost[0, i]))]
     return run_ctrl, trajectories[best_trajectory_indices]
 
@@ -354,7 +360,7 @@ class MPPIController:
   def mppi_cb(self, msg):
     # new_lambda = mp._lambda * 0.99 # This wasn't in skeleton code: Decay Lambda
     # mp.update_lambda(new_lambda) # This wasn't in skeleton code: Decay Lambda
-    # print('New Lambda: ', mp._lambda) # This wasn't in skeleton code: Decay Lambda
+    # dprint('New Lambda: ', mp._lambda) # This wasn't in skeleton code: Decay Lambda
 
     if self.last_pose is None:
       self.last_pose = np.array([msg.pose.position.x,
@@ -390,7 +396,8 @@ class MPPIController:
     #run_ctrl_np = run_ctrl.cpu().numpy().reshape((2,))
 
     self.U[:,:,0:self.T-1] = self.U[:,:,1:self.T]
-    self.U[:,:,self.T-1] = 0.0
+    self.U[0,:,self.T-1] = torch.from_numpy(np.random.uniform(-1, 1, (self.K)))
+    self.U[1,:,self.T-1] = torch.from_numpy(np.random.uniform(-0.28, 0.28, (self.K)))
 
     self.send_controls( run_ctrl[0], run_ctrl[1] )
 
@@ -478,8 +485,8 @@ if __name__ == '__main__':
   else:
     print('CUDA is NOT available')
 
-  T = 4
-  K = 8
+  T = 10
+  K = 100
   sigma = [0.1, 0.01] # These values will need to be tuned
   _lambda = 1 # 0.1 #1e-4 # 1.0
 
