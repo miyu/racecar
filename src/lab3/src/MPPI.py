@@ -238,7 +238,8 @@ class MPPIController:
     else:
         trajectories = torch.FloatTensor(self.K, self.T, 3).zero_()
         self.Trajectory_cost = torch.FloatTensor(1, self.K).zero_()
-    self.Epsilon.normal_(std=self.sigma)
+    self.Epsilon[0, :, :].normal_(std=self.sigma[0])
+    self.Epsilon[1, :, :].normal_(std=self.sigma[1])
     # Epsilon shape: (CONTROL_SIZE, K, T)
     noisyU = self.U + self.Epsilon # self.U -> All K samples SHOULD BE IDENTICAL
     # noisyU shape: (CONTROL_SIZE, K, T)
@@ -291,7 +292,7 @@ class MPPIController:
         # intermediate shape: (1, CONTROL_SIZE)
 
         intermediate = self._lambda * torch.mm(intermediate, self.Epsilon[:,:,t-1])
-        intermediate[:, :] = 0
+        # intermediate[:, :] = 0
         # self.Epsilon[:,:,t-1] shape: (CONTROL_SIZE, K)
         # intermediate shape: (1, K)
         # Lambda: Scalar
@@ -477,9 +478,9 @@ if __name__ == '__main__':
   else:
     print('CUDA is NOT available')
 
-  T = 2
+  T = 4
   K = 8
-  sigma = 0.5 # These values will need to be tuned
+  sigma = [0.1, 0.01] # These values will need to be tuned
   _lambda = 1 # 0.1 #1e-4 # 1.0
 
   if IS_ON_ROBOT:
