@@ -39,16 +39,28 @@ def wrap_pi_pi_number(x):
     return x
 
 def wrap_pi_pi_tensor(x):
-    x = torch.fmod(x, np.pi * 2)
-    x *= ((0 <= x) * (x < 2*np.pi)).type(dtype)
-    x -= (x > np.pi).type(dtype) * 2 * np.pi
+    twopi = np.pi * 2
+    pi = np.pi
+    x.add_(pi)
+    x.fmod_(twopi)
+    x.sub_(pi)
     return x
+
+    # return (((x % twopi) + pi) % twopi) - pi
+    # x = torch.fmod(x, np.pi * 2)
+    # x *= ((0 <= x) * (x < 2*np.pi)).type(dtype)
+    # x -= (x > np.pi).type(dtype) * 2 * np.pi
+    # return x
 
 
 def dprint(*args):
     #print(args)
     pass
 
+
+def benchprint(n, *args):
+    if n == 0:
+        print(args)
 
 class MPPIController:
 
@@ -160,7 +172,7 @@ class MPPIController:
   # of the map and convincing yourself that you are correctly mapping the
   # click, and thus the goal pose, to accessible places in the map
   def clicked_goal_cb(self, msg):
-    self.goal = np.array([msg.pose.position.x,
+    self.goal = self.dtype([msg.pose.position.x,
                           msg.pose.position.y,
                           Utils.quaternion_to_angle(msg.pose.orientation)])
     print("Current Pose: ", self.last_pose)
@@ -176,30 +188,37 @@ class MPPIController:
     # smooth
     # You should feel free to explore other terms to get better or unique
     # behavior
+    t0 = time.time()
+
     pose_cost = 0.0
     bounds_check = 0.0
     ctrl_cost = 0.0 # We can tweak this later
 
     # print('First Pose: ', pose[0, :])
     # print('Goal: ', goal)
+    pose.sub_(goal)
 
-    dx = pose[:, 0] - goal[0]
-    dy = pose[:, 1] - goal[1]
-    dtheta = wrap_pi_pi_tensor(pose[:, 2] - goal[2])
-    dtheta *= 0.1
+    # dx = pose[:, 0] - goal[0]
+    # dy = pose[:, 1] - goal[1]
 
-    dprint("dx", dx)
-    dprint("dy", dy)
+    tprewrap = time.time()
+    pose[:, 2] = wrap_pi_pi_tensor(pose[:, 2])
+    # dtheta *= 0.1
 
-    distance = torch.sqrt(torch.pow(dx, 2) + torch.pow(dy, 2))
+    # dprint("dx", dx)
+    # dprint("dy", dy)
 
+    tsqrt = time.time()
+    distance = torch.sum(torch.pow(pose, 2), dim=1) #torch.sqrt(torch.pow(dx, 2) + torch.pow(dy, 2))
+    # print(distance.size())
     # pose_cost = torch.sqrt(torch.pow(distance, 2) + torch.pow(dtheta, 2))
     pose_cost = distance
 
     # dprint("and costs:", pose_cost)
 
+    tprepermissible = time.time()
     grid_poses = pose.clone() #.cpu().numpy()
-    if IS_ON_ROBOT:
+    if IS_ON_ROBOT and False:
         Utils.world_to_map(grid_poses, self.map_info)
         # dprint('Grid Poses: ', grid_poses)
         permissibles = self.permissible_region[grid_poses[:, 0], grid_poses[:, 1]]
@@ -210,6 +229,11 @@ class MPPIController:
         # if self.permissible_region[int(temp_pose[0,0])][int(temp_pose[0,1])]:
         #     bounds_check = 1.0e5
 
+    pose.add_(goal)
+
+    tfinal = time.time()
+
+    benchprint(2, "calc", (tprewrap - t0), " ", (tsqrt - tprewrap), " ", (tprepermissible - tsqrt), " ", tfinal - tprepermissible)
     return pose_cost + ctrl_cost + bounds_check
 
   def mppi(self, init_pose, neural_net_input):
@@ -269,12 +293,12 @@ class MPPIController:
     # print("X_initial", x_tminus1)
     trajectories[:, :, 0] = x_tminus1.transpose(0, 1)
     # print("Yields traj", trajectories)
-    print("TOWARD", self.goal)
+    # print("TOWARD", self.goal)
 
     tinit = time.time() # 2ms
 
     for t in range(1, self.T):
-        # ti0 = time.time()
+        ti0 = time.time()
         #dprint('Neural Net Input Size: ', neural_net_input_torch.size())
         #dprint('Noisy U Size:', noisyU.size())
         neural_net_input_torch[:, 3] = torch.sin(x_tminus1[:, 2])
@@ -283,9 +307,9 @@ class MPPIController:
         neural_net_input_torch[:, 5] = noisyU[0, :, t-1]
         neural_net_input_torch[:, 6] = noisyU[1, :, t-1]
 
-        # ti_prenn = time.time()
+        ti_prenn = time.time()
         neural_net_output = self.model(Variable(neural_net_input_torch))
-        # ti_postnn = time.time()
+        ti_postnn = time.time()
 
         deltas = neural_net_output.data
         # neural_net_output shape: (K, 3)
@@ -304,7 +328,7 @@ class MPPIController:
         else:
             u_tminus1 = self.U[:,0,t-1].contiguous().view(1, CONTROL_SIZE)
 
-        # ti_preint = time.time()
+        ti_preint = time.time()
 
         # u_tminus1 shape: (1, CONTROL_SIZE)
         intermediate = torch.mm(u_tminus1, self.SigmaInv)
@@ -318,10 +342,11 @@ class MPPIController:
         # intermediate shape: (1, K)
         # Lambda: Scalar
 
+        ti_precost = time.time()
         current_cost = self.running_cost(x_t, self.goal).view(1, self.K)
         dprint('COST: ', current_cost)
 
-        # ti_pretrajc = time.time()
+        ti_pretrajc = time.time()
         self.Trajectory_cost += current_cost + intermediate
         dprint("Intermediate: ", intermediate)
         #dprint('Current Cost Size: ', current_cost.size())
@@ -332,9 +357,9 @@ class MPPIController:
 
         trajectories[:, :, t] = x_t.transpose(0, 1)
 
-        # ti_finalizing = time.time()
+        ti_finalizing = time.time()
         x_tminus1 = x_t
-        # print("iter", t, ": ", ti_prenn - ti0, " ", ti_postnn - ti_prenn, " ", ti_preint - ti_postnn, " ", ti_pretrajc - ti_preint, " ", ti_finalizing - ti_pretrajc)
+        benchprint(1, "iter", t, ": ", ti_prenn - ti0, " ", ti_postnn - ti_prenn, " ", ti_preint - ti_postnn, " ", ti_precost - ti_preint, " ", ti_pretrajc - ti_precost, " ", ti_finalizing - ti_pretrajc)
 
     titered = time.time() #200ms
 
@@ -381,21 +406,15 @@ class MPPIController:
     tfinal = time.time() #12ms
 
     # tinit titered tuupdated tending tfinal
-    print("Benchmark", (tinit - t0), " ", (titered - tinit), " ", (tuupdated - titered), " ", (tending - tuupdated), " ", (tfinal - tending))
+    benchprint(0, "Benchmark", (tinit - t0), " ", (titered - tinit), " ", (tuupdated - titered), " ", (tending - tuupdated), " ", (tfinal - tending))
     return run_ctrl, trajectories[:, best_trajectory_indices, :]
 
   # Reads Particle Filter Messages
   # ALSO do we need to make sure our Thetas are between -pi and pi???????
   def mppi_cb(self, msg):
-<<<<<<< HEAD
     # new_lambda = mp._lambda * 0.99 # This wasn't in skeleton code: Decay Lambda
     # mp.update_lambda(new_lambda) # This wasn't in skeleton code: Decay Lambda
     # dprint('New Lambda: ', mp._lambda) # This wasn't in skeleton code: Decay Lambda
-=======
-    new_lambda = mp._lambda * 0.99 # This wasn't in skeleton code: Decay Lambda
-    mp.update_lambda(new_lambda) # This wasn't in skeleton code: Decay Lambda
-    print('New Lambda: ', mp._lambda) # This wasn't in skeleton code: Decay Lambda
->>>>>>> 21dbd194ed32bc107b2346cc39a8cc25431b9e24
 
     if self.last_pose is None:
       self.last_pose = np.array([msg.pose.position.x,
@@ -403,7 +422,7 @@ class MPPIController:
                                  Utils.quaternion_to_angle(msg.pose.orientation)])
       # Default: initial goal to be where the car is when MPPI node is
       # initialized
-      self.goal = self.last_pose
+      self.goal = torch.from_numpy(self.last_pose).type(self.dtype)
       self.lasttime = msg.header.stamp.to_sec()
       return
 
@@ -412,7 +431,7 @@ class MPPIController:
                           msg.pose.position.y,
                           theta])
 
-    print("Got mppi_cb: ", msg, curr_pose)
+    # print("Got mppi_cb: ", msg, curr_pose)
 
     pose_dot = curr_pose - self.last_pose # get state
     pose_dot[2] = wrap_pi_pi_number(pose_dot[2]) # This was not in skeleton code: Clamp Theta between -pi and pi
@@ -467,7 +486,7 @@ class MPPIController:
         pa.header = Utils.make_header(frame_id)
         particle_trajectory = poses[:,i,:] # indexed [pose, particle, time]
         particle_trajectory = torch.from_numpy(particle_trajectory.cpu().numpy().transpose())
-        if i == 0:
+        if False and i == 0:
           print("trajectory", i, ": ", particle_trajectory)
         pa.poses = map(Utils.particle_to_posestamped, particle_trajectory, [frame_id]*self.T)
         self.path_pub.publish(pa)
