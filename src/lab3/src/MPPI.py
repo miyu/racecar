@@ -58,7 +58,7 @@ def dprint(*args):
 
 
 def benchprint(n, *args):
-    if n == 0:
+    if n == 5:
         print(args)
 
 class MPPIController:
@@ -128,7 +128,7 @@ class MPPIController:
     # Store last control input
     self.last_control = None
     # visualization parameters
-    self.num_viz_paths = 40
+    self.num_viz_paths = 1#40
     if self.K < self.num_viz_paths:
         self.num_viz_paths = self.K
 
@@ -164,7 +164,7 @@ class MPPIController:
         print("Making callbacks")
         self.goal_sub = rospy.Subscriber("/move_base_simple/goal",
                 PoseStamped, self.clicked_goal_cb, queue_size=1)
-        self.pose_sub  = rospy.Subscriber("/pf/viz/inferred_pose",
+        self.pose_sub  = rospy.Subscriber("/pf/ta/viz/inferred_pose",
                 PoseStamped, self.mppi_cb, queue_size=1)
 
   def out_of_bounds(self, pose):
@@ -192,10 +192,20 @@ class MPPIController:
     dprint('Grid X: ', grid_poses[:, 0])
     dprint('Scaled Grid Y: ', grid_poses[:, 1] * self.map_info.width)
     map_indices = grid_poses[:, 0] + grid_poses[:, 1] * self.map_info.width
-    dprint('Map Indices: ', map_indices)
-    dprint('Occupancy Values: ', self.map_data[map_indices])
-    return self.map_data[map_indices]
-    # output should be a LongTensor: 0's if valid, -1 if invalid
+    occupancyValues = self.map_data[map_indices]
+    for i in range(1,5): # Create buffer between car and walls
+        deltaX = i
+        deltaY = i*self.map_info.width
+        occupancyValues.add_(self.map_data[map_indices + deltaX]) # Increases x, keeps y
+        occupancyValues.add_(self.map_data[map_indices - deltaX]) # Decreases x, keeps y
+        occupancyValues.add_(self.map_data[map_indices + deltaY]) # Increases y, keeps x
+        occupancyValues.add_(self.map_data[map_indices - deltaY]) # Decreases y, keeps x
+        occupancyValues.add_(self.map_data[map_indices + deltaX + deltaY]) # Increases x, increases y
+        occupancyValues.add_(self.map_data[map_indices - deltaX - deltaY]) # Decreases x, decreases y
+        occupancyValues.add_(self.map_data[map_indices + deltaX - deltaY]) # Increases x, decreases y
+        occupancyValues.add_(self.map_data[map_indices - deltaX + deltaY]) # Decreases x, increases y
+    return occupancyValues
+    # output should be a LongTensor: 0's if valid, -1 or 100 if invalid
 
   def update_lambda(self, new_lambda):
     self._lambda = new_lambda
@@ -244,11 +254,12 @@ class MPPIController:
     # dprint("dy", dy)
 
     tsqrt = time.time()
-    distance = torch.sum(torch.pow(pose, 2), dim=1) * 1000
+    distance = torch.sum(torch.pow(pose, 2), dim=1)
+    distance.sqrt_()
     # print(distance.size())
     # pose_cost = torch.sqrt(torch.pow(distance, 2) + torch.pow(dtheta, 2))
     pose_cost = distance
-    print('Pose Cost: ', torch.max(pose_cost))
+    #print('Pose Cost: ', torch.max(pose_cost))
     # Pose Cost Shape: (K,)
 
     # dprint("and costs:", pose_cost)
@@ -256,11 +267,11 @@ class MPPIController:
     tprepermissible = time.time()
     if IS_ON_ROBOT:
         # 0 is permissible, -1 is not
-        bounds_check = self.out_of_bounds_poses(pose).type(self.dtype) * -1e4# * pose_cost
-        print('Bounds Cost: ', torch.max(bounds_check))
+        bounds_check = (self.out_of_bounds_poses(pose) != 0).type(self.dtype) * 1e4
+        #bounds_check = 0.0
+        #print('Bounds Cost: ', torch.max(bounds_check))
         # Bounds Check Shape: (K,)
         # Convert bounds_check back from LongTensor to FloatTensor to add to other costs
-        pass
 
     pose.add_(goal) # Turn (pose - goal) -> pose again
 
@@ -393,7 +404,7 @@ class MPPIController:
     titered = time.time() #200ms
 
     beta = torch.min(self.Trajectory_cost)
-    #dprint('Beta: ', beta)
+    print('Beta: ', beta)
     trajectoryMinusMin = self.Trajectory_cost - beta
     trajectoryMinusMin *= (-1.0 / self._lambda)
     #dprint('Trajectory - Beta: ', trajectoryMinusMin)
@@ -582,9 +593,9 @@ if __name__ == '__main__':
   else:
     print('CUDA is NOT available')
 
-  T = 80
-  K = 500
-  sigma = [0.1, 0.01]#[0.1, 0.1] # These values will need to be tuned
+  T = 100#20
+  K = 2000#2000
+  sigma = [0.2, 0.1]#[0.1, 0.1] # These values will need to be tuned
   _lambda = 1 # 0.1 #1e-4 # 1.0
 
   if IS_ON_ROBOT:
