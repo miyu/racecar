@@ -58,7 +58,7 @@ def dprint(*args):
 
 
 def benchprint(n, *args):
-    if n == 5:
+    if n == 0:
         print(args)
 
 class MPPIController:
@@ -182,13 +182,20 @@ class MPPIController:
 
   def out_of_bounds_poses(self, poses):
     grid_poses = poses.clone()
-    print('World Poses: ', grid_poses)
+    dprint('World Poses: ', grid_poses)
     Utils.world_to_map(grid_poses, self.map_info)
-    print('Grid Poses: ', grid_poses)
-    grid_poses.round_()
+    dprint('Grid Poses: ', grid_poses)
+    grid_poses.round_() # It's important to round, not floor
+    grid_poses = grid_poses[:, :2]
     grid_poses = grid_poses.type(torch.cuda.LongTensor)
-    return self.map_data[grid_poses[:,0] + grid_poses[:,1] * self.map_info.width]
-    # output should be 0's if valid, -1 if invalid
+    dprint('Grid Poses without Theta: ', grid_poses)
+    dprint('Grid X: ', grid_poses[:, 0])
+    dprint('Scaled Grid Y: ', grid_poses[:, 1] * self.map_info.width)
+    map_indices = grid_poses[:, 0] + grid_poses[:, 1] * self.map_info.width
+    dprint('Map Indices: ', map_indices)
+    dprint('Occupancy Values: ', self.map_data[map_indices])
+    return self.map_data[map_indices]
+    # output should be a LongTensor: 0's if valid, -1 if invalid
 
   def update_lambda(self, new_lambda):
     self._lambda = new_lambda
@@ -201,15 +208,10 @@ class MPPIController:
     self.goal = self.dtype([msg.pose.position.x,
                           msg.pose.position.y,
                           Utils.quaternion_to_angle(msg.pose.orientation)])
-    self.goal2 = self.dtype([[msg.pose.position.x,
-                          msg.pose.position.y,
-                          Utils.quaternion_to_angle(msg.pose.orientation)]])
     print("Current Pose: ", self.last_pose)
     print("SETTING Goal: ", self.goal)
-    #self.out_of_bounds(self.goal)
-    self.out_of_bounds_poses(self.goal2)
 
-  def running_cost(self, pose, goal, ctrl=None, noise=None):
+  def running_cost(self, pose, goal, deltas, noise=None):
     # TODO
     # This cost function drives the behavior of the car. You want to specify a
     # cost function that penalizes behavior that is bad with high cost, and
@@ -223,11 +225,13 @@ class MPPIController:
 
     pose_cost = 0.0
     bounds_check = 0.0
-    ctrl_cost = 0.0 # We can tweak this later
+    ctrl_cost = 0.0
+    #ctrl_cost = torch.sum(deltas.abs(), dim=1)
+    # Control Cost Shape: (K,)
 
     # print('First Pose: ', pose[0, :])
     # print('Goal: ', goal)
-    pose.sub_(goal)
+    pose.sub_(goal) # Temporarily turn pose -> (pose - goal)
 
     # dx = pose[:, 0] - goal[0]
     # dy = pose[:, 1] - goal[1]
@@ -240,37 +244,25 @@ class MPPIController:
     # dprint("dy", dy)
 
     tsqrt = time.time()
-    distance = torch.sum(torch.pow(pose, 2), dim=1) #torch.sqrt(torch.pow(dx, 2) + torch.pow(dy, 2))
+    distance = torch.sum(torch.pow(pose, 2), dim=1) * 1000
     # print(distance.size())
     # pose_cost = torch.sqrt(torch.pow(distance, 2) + torch.pow(dtheta, 2))
     pose_cost = distance
+    print('Pose Cost: ', torch.max(pose_cost))
+    # Pose Cost Shape: (K,)
 
     # dprint("and costs:", pose_cost)
 
     tprepermissible = time.time()
-    grid_poses = self.dtype(pose.size()) #.cpu().numpy()
     if IS_ON_ROBOT:
-        #Utils.world_to_map(grid_poses, self.map_info)
+        # 0 is permissible, -1 is not
+        bounds_check = self.out_of_bounds_poses(pose).type(self.dtype) * -1e4# * pose_cost
+        print('Bounds Cost: ', torch.max(bounds_check))
+        # Bounds Check Shape: (K,)
+        # Convert bounds_check back from LongTensor to FloatTensor to add to other costs
+        pass
 
-        # dprint('Grid Poses: ', grid_poses)
-        # 0 is permissible, 1 is not
-
-        indices = grid_poses[:, 1].clone() # cast this to an int and it'll work
-        indices.floor_()
-        indices.mul_(self.map_info.width)
-        indices.add_(grid_poses[:, 0])
-        indices = indices.type(torch.cuda.LongTensor)
-
-        # index y then x, but I flattened so now y * w + x
-        permissibles = self.permissible_region_torch[indices]
-        bounds_check = permissibles * 1E3
-        # dprint('Permissibles Size: ', permissibles.shape)
-        # dprint('Permissible Region: ', self.permissible_region)
-        # dprint(temp_pose, self.map_info)
-        # if self.permissible_region[int(temp_pose[0,0])][int(temp_pose[0,1])]:
-        #     bounds_check = 1.0e5
-
-    pose.add_(goal)
+    pose.add_(goal) # Turn (pose - goal) -> pose again
 
     tfinal = time.time()
 
@@ -374,26 +366,22 @@ class MPPIController:
         # u_tminus1 shape: (1, CONTROL_SIZE)
         intermediate = torch.mm(u_tminus1, self.SigmaInv)
         # self.Sigma shape: (CONTROL_SIZE, CONTROL_SIZE)
-
         # intermediate shape: (1, CONTROL_SIZE)
 
         intermediate = self._lambda * torch.mm(intermediate, self.Epsilon[:,:,t-1])
-        # intermediate[:, :] = 0
         # self.Epsilon[:,:,t-1] shape: (CONTROL_SIZE, K)
         # intermediate shape: (1, K)
         # Lambda: Scalar
 
         ti_precost = time.time()
-        current_cost = self.running_cost(x_t, self.goal).view(1, self.K)
+        current_cost = self.running_cost(x_t, self.goal, deltas).view(1, self.K)
+        # current_cost shape: (1, K)
         dprint('COST: ', current_cost)
 
         ti_pretrajc = time.time()
         self.Trajectory_cost += current_cost + intermediate
-        dprint("Intermediate: ", intermediate)
-        #dprint('Current Cost Size: ', current_cost.size())
-
-        # running_cost: want this to be (1, K)
-        # self._lambda * intermediate: (1, K)
+        # current_cost shape: (1, K)
+        # intermediate shape: (1, K)
         # self.Trajectory_cost shape: (1, K)
 
         trajectories[:, :, t] = x_t.transpose(0, 1)
@@ -594,9 +582,9 @@ if __name__ == '__main__':
   else:
     print('CUDA is NOT available')
 
-  T = 40
-  K = 100
-  sigma = [0.1, 0.1] # These values will need to be tuned
+  T = 80
+  K = 500
+  sigma = [0.1, 0.01]#[0.1, 0.1] # These values will need to be tuned
   _lambda = 1 # 0.1 #1e-4 # 1.0
 
   if IS_ON_ROBOT:
