@@ -157,8 +157,7 @@ class MPPIController:
                                                   # With values 0: not permissible, 1: permissible
         self.permissible_region = np.negative(self.permissible_region) # 0 is permissible, 1 is not
         self.permissible_region_torch = torch.from_numpy(
-            self.permissible_region.astype(float) \
-                .reshape((map_msg.info.height * map_msg.info.width,))
+            self.permissible_region.astype(float)
             ).type(self.dtype)
 
         print("Making callbacks")
@@ -169,16 +168,22 @@ class MPPIController:
 
   def out_of_bounds(self, pose):
     grid_poses = pose.clone().view(1,3)
-    print('World Poses: ', grid_poses)
+    dprint('World Poses: ', grid_poses)
     Utils.world_to_map(grid_poses, self.map_info)
-    print('Grid Poses: ', grid_poses)
+    dprint('Grid Poses: ', grid_poses)
     grid_poses.round_()
-    grid_x = grid_poses[0][0]
-    grid_y = grid_poses[0][1]
-    if self.map_data[int(int(round(grid_x)) + int(round(grid_y)) * self.map_info.width)] == -1:
-        print('Pose is invalid!!!!')
+    grid_x = int(round(grid_poses[0][0]))
+    grid_y = int(round(grid_poses[0][1]))
+    occupancyVal = self.permissible_region[grid_y, grid_x]
+    if occupancyVal == 1:
+    #occupancyVal = self.map_data[grid_x + grid_y * self.map_info.width)]
+    # if occupancyVal == -1 or occupancyVal == 100:
+        #print('Pose is invalid!!!!')
+        return 0
     else:
-        print('Pose is valid!!!')
+        #print('Valid pose: ', pose)
+        #print('Pose is valid!!!')
+        return 1
 
   def out_of_bounds_poses(self, poses):
     grid_poses = poses.clone()
@@ -186,25 +191,37 @@ class MPPIController:
     Utils.world_to_map(grid_poses, self.map_info)
     dprint('Grid Poses: ', grid_poses)
     grid_poses.round_() # It's important to round, not floor
-    grid_poses = grid_poses[:, :2]
+    grid_poses = grid_poses[:, :2] # Gets rid of theta
     grid_poses = grid_poses.type(torch.cuda.LongTensor)
-    dprint('Grid Poses without Theta: ', grid_poses)
-    dprint('Grid X: ', grid_poses[:, 0])
-    dprint('Scaled Grid Y: ', grid_poses[:, 1] * self.map_info.width)
-    map_indices = grid_poses[:, 0] + grid_poses[:, 1] * self.map_info.width
-    occupancyValues = self.map_data[map_indices]
-    for i in range(1,5): # Create buffer between car and walls
-        deltaX = i
-        deltaY = i*self.map_info.width
-        occupancyValues.add_(self.map_data[map_indices + deltaX]) # Increases x, keeps y
-        occupancyValues.add_(self.map_data[map_indices - deltaX]) # Decreases x, keeps y
-        occupancyValues.add_(self.map_data[map_indices + deltaY]) # Increases y, keeps x
-        occupancyValues.add_(self.map_data[map_indices - deltaY]) # Decreases y, keeps x
-        occupancyValues.add_(self.map_data[map_indices + deltaX + deltaY]) # Increases x, increases y
-        occupancyValues.add_(self.map_data[map_indices - deltaX - deltaY]) # Decreases x, decreases y
-        occupancyValues.add_(self.map_data[map_indices + deltaX - deltaY]) # Increases x, decreases y
-        occupancyValues.add_(self.map_data[map_indices - deltaX + deltaY]) # Decreases x, increases y
+    #map_indices = grid_poses[:, 0] + grid_poses[:, 1]
+    occupancyValues = self.permissible_region_torch[grid_poses[:, 1], grid_poses[:, 0]]
     return occupancyValues
+
+  # def out_of_bounds_poses(self, poses):
+  #   grid_poses = poses.clone()
+  #   dprint('World Poses: ', grid_poses)
+  #   Utils.world_to_map(grid_poses, self.map_info)
+  #   dprint('Grid Poses: ', grid_poses)
+  #   grid_poses.round_() # It's important to round, not floor
+  #   grid_poses = grid_poses[:, :2]
+  #   grid_poses = grid_poses.type(torch.cuda.LongTensor)
+  #   dprint('Grid Poses without Theta: ', grid_poses)
+  #   dprint('Grid X: ', grid_poses[:, 0])
+  #   dprint('Scaled Grid Y: ', grid_poses[:, 1] * self.map_info.width)
+  #   map_indices = grid_poses[:, 0] + grid_poses[:, 1] * self.map_info.width
+  #   occupancyValues = self.map_data[map_indices]
+  #   for i in range(1,5): # Create buffer between car and walls
+  #       deltaX = i
+  #       deltaY = i*self.map_info.width
+  #       occupancyValues.add_(self.map_data[map_indices + deltaX]) # Increases x, keeps y
+  #       occupancyValues.add_(self.map_data[map_indices - deltaX]) # Decreases x, keeps y
+  #       occupancyValues.add_(self.map_data[map_indices + deltaY]) # Increases y, keeps x
+  #       occupancyValues.add_(self.map_data[map_indices - deltaY]) # Decreases y, keeps x
+  #       occupancyValues.add_(self.map_data[map_indices + deltaX + deltaY]) # Increases x, increases y
+  #       occupancyValues.add_(self.map_data[map_indices - deltaX - deltaY]) # Decreases x, decreases y
+  #       occupancyValues.add_(self.map_data[map_indices + deltaX - deltaY]) # Increases x, decreases y
+  #       occupancyValues.add_(self.map_data[map_indices - deltaX + deltaY]) # Decreases x, increases y
+  #   return occupancyValues
     # output should be a LongTensor: 0's if valid, -1 or 100 if invalid
 
   def update_lambda(self, new_lambda):
@@ -218,8 +235,14 @@ class MPPIController:
     self.goal = self.dtype([msg.pose.position.x,
                           msg.pose.position.y,
                           Utils.quaternion_to_angle(msg.pose.orientation)])
+    self.goal2 = self.dtype([[msg.pose.position.x,
+                          msg.pose.position.y,
+                          Utils.quaternion_to_angle(msg.pose.orientation)], [msg.pose.position.x,
+                                                msg.pose.position.y,
+                                                Utils.quaternion_to_angle(msg.pose.orientation)]])
     print("Current Pose: ", self.last_pose)
     print("SETTING Goal: ", self.goal)
+    print(self.out_of_bounds_poses(self.goal2))
 
   def running_cost(self, pose, goal, deltas, noise=None):
     # TODO
@@ -241,20 +264,20 @@ class MPPIController:
 
     # print('First Pose: ', pose[0, :])
     # print('Goal: ', goal)
-    pose.sub_(goal) # Temporarily turn pose -> (pose - goal)
+    delta_pose = pose.sub(goal)
 
     # dx = pose[:, 0] - goal[0]
     # dy = pose[:, 1] - goal[1]
 
     tprewrap = time.time()
-    pose[:, 2] = wrap_pi_pi_tensor(pose[:, 2])
+    delta_pose[:, 2] = wrap_pi_pi_tensor(delta_pose[:, 2])
     # dtheta *= 0.1
 
     # dprint("dx", dx)
     # dprint("dy", dy)
 
     tsqrt = time.time()
-    distance = torch.sum(torch.pow(pose, 2), dim=1)
+    distance = torch.sum(torch.pow(delta_pose, 2), dim=1)
     distance.sqrt_()
     # print(distance.size())
     # pose_cost = torch.sqrt(torch.pow(distance, 2) + torch.pow(dtheta, 2))
@@ -267,13 +290,11 @@ class MPPIController:
     tprepermissible = time.time()
     if IS_ON_ROBOT:
         # 0 is permissible, -1 is not
-        bounds_check = (self.out_of_bounds_poses(pose) != 0).type(self.dtype) * 1e4
+        bounds_check = (self.out_of_bounds_poses(pose)) * 1e4
         #bounds_check = 0.0
         #print('Bounds Cost: ', torch.max(bounds_check))
         # Bounds Check Shape: (K,)
         # Convert bounds_check back from LongTensor to FloatTensor to add to other costs
-
-    pose.add_(goal) # Turn (pose - goal) -> pose again
 
     tfinal = time.time()
 
@@ -334,6 +355,11 @@ class MPPIController:
     x_tminus1 = torch.from_numpy(np.tile(init_pose, (self.K, 1)).astype('float32')).type(self.dtype)
     # x_tminus1 shape: (K, 3)
 
+    #print('INITIAL POSES: ', x_tminus1)
+    #current_cost = self.running_cost(x_tminus1, self.goal, None).view(1, self.K)
+    # print('GOAL: ', self.goal)
+    # print('COST: ', current_cost)
+
     # print("X_initial", x_tminus1)
     trajectories[:, :, 0] = x_tminus1.transpose(0, 1)
     # print("Yields traj", trajectories)
@@ -387,7 +413,9 @@ class MPPIController:
         ti_precost = time.time()
         current_cost = self.running_cost(x_t, self.goal, deltas).view(1, self.K)
         # current_cost shape: (1, K)
-        dprint('COST: ', current_cost)
+        # print('POSE at time ' + str(t) + ': ', x_t)
+        # print('GOAL: ', self.goal)
+        # print('COST: ', current_cost)
 
         ti_pretrajc = time.time()
         self.Trajectory_cost += current_cost + intermediate
@@ -420,17 +448,20 @@ class MPPIController:
         #dprint('Omega: ', omega)
         # omega shape: (CONTROL_SIZE, K)
         delta_control = torch.sum(omega * self.Epsilon[:,:,t], dim=1).view(CONTROL_SIZE, 1)
-        #dprint('Delta Control: ', delta_control)
         #dprint('Delta control shape: ', delta_control.size())
         # self.Epsilon[:, :, t] shape: (CONTROL_SIZE, K)
         # delta_control shape: (CONTROL_SIZE, 1)
         self.U[:, :, t] += delta_control
         # self.U[:, :, t] shape: (CONTROL_SIZE, K)
+        #print('Control at time ' + str(t) + ': ' + str(self.U[:, 0, t]))
 
     # dprint("Validate U:", self.U)
     tuupdated = time.time() # 7ms
 
-    controls = noisyU[:, :, 0]
+    controls = noisyU[:, :, 0]# * self.Trajectory_cost
+    # noisyU shape: (CONTROL_SIZE, K, T)
+    # noisyU[:, :, 0]
+    # self.Trajectory_cost shape: (1, self.K)
     dprint("Controls:", controls)
     dprint("Trajectory costs:", self.Trajectory_cost)
     best_cost, best_index = torch.min(self.Trajectory_cost, 1)
@@ -457,19 +488,22 @@ class MPPIController:
     # dprint('New Lambda: ', mp._lambda) # This wasn't in skeleton code: Decay Lambda
 
     if self.last_pose is None:
-      self.last_pose = np.array([msg.pose.position.x,
+      self.last_pose = self.dtype([msg.pose.position.x,
                                  msg.pose.position.y,
                                  Utils.quaternion_to_angle(msg.pose.orientation)])
       # Default: initial goal to be where the car is when MPPI node is
       # initialized
-      self.goal = torch.from_numpy(self.last_pose).type(self.dtype)
+      self.goal = self.last_pose
       self.lasttime = msg.header.stamp.to_sec()
       return
 
     theta = Utils.quaternion_to_angle(msg.pose.orientation)
-    curr_pose = np.array([msg.pose.position.x,
+    curr_pose = self.dtype([msg.pose.position.x,
                           msg.pose.position.y,
                           theta])
+    valid = self.out_of_bounds(curr_pose)
+    if not valid:
+        return
 
     # print("Got mppi_cb: ", msg, curr_pose)
 
@@ -593,9 +627,9 @@ if __name__ == '__main__':
   else:
     print('CUDA is NOT available')
 
-  T = 100#20
+  T = 50#20
   K = 2000#2000
-  sigma = [0.2, 0.1]#[0.1, 0.1] # These values will need to be tuned
+  sigma = [0.2, 0.05]#[0.1, 0.1] # These values will need to be tuned
   _lambda = 1 # 0.1 #1e-4 # 1.0
 
   if IS_ON_ROBOT:
