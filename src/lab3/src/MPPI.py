@@ -156,6 +156,25 @@ class MPPIController:
         self.permissible_region[array_255==0] = 1 # Numpy array of dimension (map_msg.info.height, map_msg.info.width),
                                                   # With values 0: not permissible, 1: permissible
         self.permissible_region = np.negative(self.permissible_region) # 0 is permissible, 1 is not
+
+        print('Sum in permissible region before: ', np.sum(self.permissible_region))
+
+        indices = np.argwhere(self.permissible_region == 1)
+        bufferSize = 8 # Tune this
+        for i in range(1, bufferSize + 1): # Create buffer between car and walls
+            delta = i
+            plus1_indices = np.minimum(indices[:, 1] + delta, self.permissible_region.shape[1] - 1)
+            plus0_indices = np.minimum(indices[:, 0] + delta, self.permissible_region.shape[0] - 1)
+            minus1_indices = np.maximum(indices[:, 1] - delta, 0)
+            minus0_indices = np.maximum(indices[:, 0] - delta, 0)
+
+            self.permissible_region[plus0_indices, indices[:, 1]] = 1 # Increases x, keeps y
+            self.permissible_region[minus0_indices, indices[:, 1]] = 1 # Decreases x, keeps y
+            self.permissible_region[indices[:, 0], plus1_indices] = 1 # Increases y, keeps x
+            self.permissible_region[indices[:, 0], minus1_indices] = 1 # Decreases y, keeps x
+
+        print('Sum in permissible region after: ', np.sum(self.permissible_region))
+
         self.permissible_region_torch = torch.from_numpy(
             self.permissible_region.astype(float)
             ).type(self.dtype)
