@@ -46,21 +46,15 @@ def wrap_pi_pi_tensor(x):
     x.sub_(pi)
     return x
 
-    # return (((x % twopi) + pi) % twopi) - pi
-    # x = torch.fmod(x, np.pi * 2)
-    # x *= ((0 <= x) * (x < 2*np.pi)).type(dtype)
-    # x -= (x > np.pi).type(dtype) * 2 * np.pi
-    # return x
-
 def dprint(*args):
     #print(args)
     pass
 
 
 def benchprint(n, *args):
-    if n == 5:
-        print(args)
-
+    #if True:#n == 5:
+    #print(args)
+    pass
 class MPPIController:
 
   def __init__(self, T, K, sigma=0.5, _lambda=0.5):
@@ -98,25 +92,35 @@ class MPPIController:
         self.model = torch.load(MODEL_FILENAME, map_location=lambda storage, loc: storage).eval() # Maps CPU storage and serialized location back to CPU storage
 
 
-    sigma_data = [[1.0, 0.2], [0.2, 1.0]]
+    sigma_data = [[self.sigma[0], 0.0], [0.0, self.sigma[1]]]
 
     if CUDA:
         self.model.cuda() # tell torch to run the network on the GPU
         self.dtype = torch.cuda.FloatTensor
 
-        self.Sigma = torch.cuda.FloatTensor(sigma_data) # Covariance Matrix shape: (CONTROL_SIZE, CONTROL_SIZE)
-        self.SigmaInv = torch.inverse(self.Sigma)
-        self.U = torch.cuda.FloatTensor(CONTROL_SIZE, self.K, self.T).zero_()
-        self.Epsilon = torch.cuda.FloatTensor(CONTROL_SIZE, self.K, self.T).zero_()
-        self.Trajectory_cost = torch.cuda.FloatTensor(1, self.K).zero_()
     else:
         self.dtype = torch.FloatTensor
 
-        self.Sigma = torch.FloatTensor(sigma_data) # Covariance Matrix shape: (CONTROL_SIZE, CONTROL_SIZE)
-        self.SigmaInv = torch.inverse(self.Sigma)
-        self.U = torch.FloatTensor(CONTROL_SIZE, self.K, self.T).zero_()
-        self.Epsilon = torch.FloatTensor(CONTROL_SIZE, self.K, self.T).zero_()
-        self.Trajectory_cost = torch.FloatTensor(1, self.K).zero_()
+    self.Sigma = self.dtype(sigma_data) # Covariance Matrix shape: (CONTROL_SIZE, CONTROL_SIZE)
+    self.SigmaInv = torch.inverse(self.Sigma)
+    self.U = self.dtype(CONTROL_SIZE, self.K, self.T).zero_()
+    self.Epsilon = self.dtype(CONTROL_SIZE, self.K, self.T).zero_()
+    self.Trajectory_cost = self.dtype(1, self.K).zero_()
+    self.trajectories = self.dtype(3, self.K, self.T).zero_()
+    self.noisyU = self.dtype(CONTROL_SIZE, self.K, self.T).zero_()
+    self.neural_net_input = self.dtype(8).zero_()
+    self.neural_net_input_torch = self.dtype(self.K, 8).zero_()
+    self.bounds_check = self.dtype(self.K).zero_()
+    self.pose_cost = self.dtype(self.K).zero_()
+    self.omega = self.dtype(1, self.K).zero_()
+    self.x_tminus1 = self.dtype(self.K, 3).zero_()
+    self.x_t = self.dtype(self.K, 3).zero_()
+
+    #self.pre_delta_control = self.dtype(CONTROL_SIZE, self.T).zero_()
+    #self.delta_control = self.dtype(CONTROL_SIZE, self.K, self.T).zero_()
+    #self.omega_expand = self.dtype(CONTROL_SIZE, self.K, self.T).zero_()
+    #self.trajectoryMinusMin = self.dtype(1, self.K).zero_()
+
 
     print("Loading:", MODEL_FILENAME)
     print("Model:\n",self.model)
@@ -159,20 +163,32 @@ class MPPIController:
 
         print('Sum in permissible region before: ', np.sum(self.permissible_region))
 
-        indices = np.argwhere(self.permissible_region == 1)
-        bufferSize = 8 # Tune this
-        for i in range(1, bufferSize + 1): # Create buffer between car and walls
-            delta = i
-            plus1_indices = np.minimum(indices[:, 1] + delta, self.permissible_region.shape[1] - 1)
+        indices = np.argwhere(array_255 == 100)
+        bufferSize = 12 # Tune this
+        for i in range(0, bufferSize + 1): # Create buffer between car and walls
+            print('i: ', i)
+	    delta = i
+        #    plus1_indices = np.minimum(indices[:, 1] + delta, self.permissible_region.shape[1] - 1)
             plus0_indices = np.minimum(indices[:, 0] + delta, self.permissible_region.shape[0] - 1)
-            minus1_indices = np.maximum(indices[:, 1] - delta, 0)
+        #    minus1_indices = np.maximum(indices[:, 1] - delta, 0)
             minus0_indices = np.maximum(indices[:, 0] - delta, 0)
 
-            self.permissible_region[plus0_indices, indices[:, 1]] = 1 # Increases x, keeps y
-            self.permissible_region[minus0_indices, indices[:, 1]] = 1 # Decreases x, keeps y
-            self.permissible_region[indices[:, 0], plus1_indices] = 1 # Increases y, keeps x
-            self.permissible_region[indices[:, 0], minus1_indices] = 1 # Decreases y, keeps x
+        #    self.permissible_region[plus0_indices, indices[:, 1]] = 1 # Increases x, keeps y
+        #    self.permissible_region[minus0_indices, indices[:, 1]] = 1 # Decreases x, keeps y
+        #    self.permissible_region[indices[:, 0], plus1_indices] = 1 # Increases y, keeps x
+        #    self.permissible_region[indices[:, 0], minus1_indices] = 1 # Decreases y, keeps x
 
+        #    self.permissible_region[minus0_indices, minus1_indices] = 1
+        #    self.permissible_region[plus0_indices, minus1_indices] = 1
+        #    self.permissible_region[minus0_indices, plus1_indices] = 1
+        #    self.permissible_region[plus0_indices, plus1_indices] = 1
+	    for j in range(0, bufferSize+1):
+	        minus1_indices = np.maximum(indices[:,1]-j, 0)
+	        plus1_indices = np.minimum(indices[:,1] - j, self.permissible_region.shape[1] -1)
+		self.permissible_region[minus0_indices, minus1_indices] = 1
+		self.permissible_region[plus0_indices, minus1_indices] = 1
+		self.permissible_region[minus0_indices, plus1_indices] = 1
+		self.permissible_region[plus0_indices, minus1_indices] =  1
         print('Sum in permissible region after: ', np.sum(self.permissible_region))
 
         self.permissible_region_torch = torch.from_numpy(
@@ -205,43 +221,40 @@ class MPPIController:
         return 1
 
   def out_of_bounds_poses(self, poses):
+    t0 = time.time()
     grid_poses = poses.clone()
     dprint('World Poses: ', grid_poses)
+
+    t1 = time.time()
+    #print('time for clone:', t1 - t0)
+
     Utils.world_to_map(grid_poses, self.map_info)
+
+    t2 = time.time()
+    dprint('time for util:', t2 - t1)
+
     dprint('Grid Poses: ', grid_poses)
     grid_poses.round_() # It's important to round, not floor
-    grid_poses = grid_poses[:, :2] # Gets rid of theta
+
+    # t3 = time.time()
+    # print('time for round:', t3 - t2)
+
+
+    #grid_poses = grid_poses[:, :2] # Gets rid of theta
     grid_poses = grid_poses.type(torch.cuda.LongTensor)
+
+    # t4 = time.time()
+    # print('time for type:', t4 - t3)
+
+
     #map_indices = grid_poses[:, 0] + grid_poses[:, 1]
     occupancyValues = self.permissible_region_torch[grid_poses[:, 1], grid_poses[:, 0]]
-    return occupancyValues
 
-  # def out_of_bounds_poses(self, poses):
-  #   grid_poses = poses.clone()
-  #   dprint('World Poses: ', grid_poses)
-  #   Utils.world_to_map(grid_poses, self.map_info)
-  #   dprint('Grid Poses: ', grid_poses)
-  #   grid_poses.round_() # It's important to round, not floor
-  #   grid_poses = grid_poses[:, :2]
-  #   grid_poses = grid_poses.type(torch.cuda.LongTensor)
-  #   dprint('Grid Poses without Theta: ', grid_poses)
-  #   dprint('Grid X: ', grid_poses[:, 0])
-  #   dprint('Scaled Grid Y: ', grid_poses[:, 1] * self.map_info.width)
-  #   map_indices = grid_poses[:, 0] + grid_poses[:, 1] * self.map_info.width
-  #   occupancyValues = self.map_data[map_indices]
-  #   for i in range(1,5): # Create buffer between car and walls
-  #       deltaX = i
-  #       deltaY = i*self.map_info.width
-  #       occupancyValues.add_(self.map_data[map_indices + deltaX]) # Increases x, keeps y
-  #       occupancyValues.add_(self.map_data[map_indices - deltaX]) # Decreases x, keeps y
-  #       occupancyValues.add_(self.map_data[map_indices + deltaY]) # Increases y, keeps x
-  #       occupancyValues.add_(self.map_data[map_indices - deltaY]) # Decreases y, keeps x
-  #       occupancyValues.add_(self.map_data[map_indices + deltaX + deltaY]) # Increases x, increases y
-  #       occupancyValues.add_(self.map_data[map_indices - deltaX - deltaY]) # Decreases x, decreases y
-  #       occupancyValues.add_(self.map_data[map_indices + deltaX - deltaY]) # Increases x, decreases y
-  #       occupancyValues.add_(self.map_data[map_indices - deltaX + deltaY]) # Decreases x, increases y
-  #   return occupancyValues
-    # output should be a LongTensor: 0's if valid, -1 or 100 if invalid
+    # t5 = time.time()
+    # print('time for occupancy:', t5 - t4)
+
+
+    return occupancyValues
 
   def update_lambda(self, new_lambda):
     self._lambda = new_lambda
@@ -254,14 +267,10 @@ class MPPIController:
     self.goal = self.dtype([msg.pose.position.x,
                           msg.pose.position.y,
                           Utils.quaternion_to_angle(msg.pose.orientation)])
-    self.goal2 = self.dtype([[msg.pose.position.x,
-                          msg.pose.position.y,
-                          Utils.quaternion_to_angle(msg.pose.orientation)], [msg.pose.position.x,
-                                                msg.pose.position.y,
-                                                Utils.quaternion_to_angle(msg.pose.orientation)]])
+
+    self.U.zero_()
     print("Current Pose: ", self.last_pose)
     print("SETTING Goal: ", self.goal)
-    print(self.out_of_bounds_poses(self.goal2))
 
   def running_cost(self, pose, goal, deltas, noise=None):
     # TODO
@@ -275,52 +284,40 @@ class MPPIController:
     # behavior
     t0 = time.time()
 
-    pose_cost = 0.0
-    bounds_check = 0.0
-    ctrl_cost = 0.0
-    #ctrl_cost = torch.sum(deltas.abs(), dim=1)
-    # Control Cost Shape: (K,)
-
-    # print('First Pose: ', pose[0, :])
-    # print('Goal: ', goal)
-    delta_pose = pose.sub(goal)
-
-    # dx = pose[:, 0] - goal[0]
-    # dy = pose[:, 1] - goal[1]
-
     tprewrap = time.time()
-    delta_pose[:, 2] = wrap_pi_pi_tensor(delta_pose[:, 2])
-    # dtheta *= 0.1
-
-    # dprint("dx", dx)
-    # dprint("dy", dy)
+    pose.sub_(goal)
+    pose[:, 2] = wrap_pi_pi_tensor(pose[:, 2])
 
     tsqrt = time.time()
-    distance = torch.sum(torch.pow(delta_pose, 2), dim=1)
-    distance.sqrt_()
-    # print(distance.size())
-    # pose_cost = torch.sqrt(torch.pow(distance, 2) + torch.pow(dtheta, 2))
-    pose_cost = distance
+    self.pose_cost.zero_()
+    self.pose_cost.add_(torch.sum(torch.pow(pose, 2), dim=1))#.add(torch.pow(pose[:,2].div(3), 2))
+    self.pose_cost.sqrt_()
+
+    pose.add_(goal)
     #print('Pose Cost: ', torch.max(pose_cost))
     # Pose Cost Shape: (K,)
 
     # dprint("and costs:", pose_cost)
 
     tprepermissible = time.time()
-    if IS_ON_ROBOT:
-        # 0 is permissible, -1 is not
-        bounds_check = (self.out_of_bounds_poses(pose)) * 1e4
-        #bounds_check = 0.0
-        #print('Bounds Cost: ', torch.max(bounds_check))
-        # Bounds Check Shape: (K,)
-        # Convert bounds_check back from LongTensor to FloatTensor to add to other costs
+
+    # 0 is permissible, -1 is not
+    self.bounds_check.zero_()
+    self.bounds_check.add_(self.out_of_bounds_poses(pose))
+    self.bounds_check.mul_(1e4)
+    #bounds_check = 0.0
+    #print('Bounds Cost: ', torch.max(bounds_check))
+    # Bounds Check Shape: (K,)
+    # Convert bounds_check back from LongTensor to FloatTensor to add to other costs
 
     tfinal = time.time()
 
-    benchprint(0, "calc", (tprewrap - t0), " ", (tsqrt - tprewrap), " ", (tprepermissible - tsqrt), " ", tfinal - tprepermissible)
-    return pose_cost + ctrl_cost + bounds_check
+    self.pose_cost.add_(self.bounds_check)
 
-  def mppi(self, init_pose, neural_net_input):
+    benchprint(0, "calc", (tprewrap - t0), " ", (tsqrt - tprewrap), " ", (tprepermissible - tsqrt), " ", tfinal - tprepermissible)
+    return self.pose_cost
+
+  def mppi(self, init_pose):#, neural_net_input):
     t0 = time.time()
     # Network input can be:
     #   0    1       2          3           4        5      6   7
@@ -346,32 +343,26 @@ class MPPIController:
     # reasonable amount of calculations done (T = 40, K = 2000) within the 100ms
     # between inferred-poses from the particle filter.
 
-    if CUDA:
-        trajectories = torch.cuda.FloatTensor(3, self.K, self.T).zero_()
-        self.Trajectory_cost = torch.cuda.FloatTensor(1, self.K).zero_()
-    else:
-        trajectories = torch.FloatTensor(3, self.K, self.T).zero_()
-        self.Trajectory_cost = torch.FloatTensor(1, self.K).zero_()
+    self.Trajectory_cost.zero_()
+    self.trajectories.zero_()
     self.Epsilon[0, :, :].normal_(std=self.sigma[0])
     self.Epsilon[1, :, :].normal_(std=self.sigma[1])
     # Epsilon shape: (CONTROL_SIZE, K, T)
-    noisyU = self.U + self.Epsilon # self.U -> All K samples SHOULD BE IDENTICAL
+    #noisyU = self.U + self.Epsilon # self.U -> All K samples SHOULD BE IDENTICAL
+    self.noisyU.zero_()
+    self.noisyU.add_(self.U)
+    self.noisyU.add_(self.Epsilon)
     # noisyU shape: (CONTROL_SIZE, K, T)
 
-    # noisyU[:, :, :] = 0
-    # for t in range(self.T):
-    #     noisyU[:, 0, t] = torch.cuda.FloatTensor([0.7, 0])
-    #     noisyU[:, 1, t] = torch.cuda.FloatTensor([-0.7, 0])
-    #     noisyU[:, 2, t] = torch.cuda.FloatTensor([0.7, -0.25])
-    #     noisyU[:, 3, t] = torch.cuda.FloatTensor([0.7, 0.25])
-
-    neural_net_input = np.tile(neural_net_input, (self.K, 1)) # We should convert these numpy operations to CUDA later
-    # neural_net_input shape: (8) -> (K, 8)
-
-    neural_net_input_torch = torch.from_numpy(neural_net_input.astype('float32')).type(self.dtype)
+    self.neural_net_input_torch.zero_()
+    self.neural_net_input_torch.add_(self.neural_net_input.repeat(self.K, 1))
     # neural_net_input_torch shape: (K, 8)
 
-    x_tminus1 = torch.from_numpy(np.tile(init_pose, (self.K, 1)).astype('float32')).type(self.dtype)
+    #x_tminus1 = torch.from_numpy(np.tile(init_pose, (self.K, 1)).astype('float32')).type(self.dtype)
+    pre_x_tminus1 = self.dtype(init_pose)
+    self.x_tminus1.zero_()
+    self.x_tminus1.add_(pre_x_tminus1.repeat(self.K, 1))
+
     # x_tminus1 shape: (K, 3)
 
     #print('INITIAL POSES: ', x_tminus1)
@@ -380,7 +371,7 @@ class MPPIController:
     # print('COST: ', current_cost)
 
     # print("X_initial", x_tminus1)
-    trajectories[:, :, 0] = x_tminus1.transpose(0, 1)
+    self.trajectories[:, :, 0].add_(self.x_tminus1.transpose(0, 1))
     # print("Yields traj", trajectories)
     # print("TOWARD", self.goal)
 
@@ -389,34 +380,35 @@ class MPPIController:
     for t in range(1, self.T):
         ti0 = time.time()
         #dprint('Neural Net Input Size: ', neural_net_input_torch.size())
-        #dprint('Noisy U Size:', noisyU.size())
-        neural_net_input_torch[:, 3] = torch.sin(x_tminus1[:, 2])
-        neural_net_input_torch[:, 4] = torch.cos(x_tminus1[:, 2])
+        #dprint('Noisy U Size:', noisy/U.size())
 
-        neural_net_input_torch[:, 5] = noisyU[0, :, t-1]
-        neural_net_input_torch[:, 6] = noisyU[1, :, t-1]
+        self.neural_net_input_torch[:, 3] = (torch.sin(self.x_tminus1[:, 2]))
+        self.neural_net_input_torch[:, 4] = (torch.cos(self.x_tminus1[:, 2]))
+
+        self.neural_net_input_torch[:, 5] = self.noisyU[0, :, t-1]
+        self.neural_net_input_torch[:, 6] = self.noisyU[1, :, t-1]
 
         ti_prenn = time.time()
-        neural_net_output = self.model(Variable(neural_net_input_torch))
+        neural_net_output = self.model(Variable(self.neural_net_input_torch))
         ti_postnn = time.time()
 
         deltas = neural_net_output.data
         # neural_net_output shape: (K, 3)
 
-        neural_net_input_torch[:, 0:3] = deltas
+        self.neural_net_input_torch[:, 0:3] = deltas
 
-        dprint("Inputs:", neural_net_input_torch)
+        dprint("Inputs:", self.neural_net_input_torch)
         dprint("Deltas:", deltas)
-        dprint("@t-1:", t, x_tminus1)
-        x_t = x_tminus1 + deltas
+        dprint("@t-1:", t, self.x_tminus1)
+        #self.x_t.zero_()
+        #self.x_t.add_(self.x_tminus1.add(deltas))
+        self.x_t = self.x_tminus1.add(deltas)
         # x_t shape: (K, 3)
         # dprint("@t:", t, x_t)
-
         if CUDA:
             u_tminus1 = self.U[:,0,t-1].view(1, CONTROL_SIZE)
         else:
             u_tminus1 = self.U[:,0,t-1].contiguous().view(1, CONTROL_SIZE)
-
         ti_preint = time.time()
 
         # u_tminus1 shape: (1, CONTROL_SIZE)
@@ -424,60 +416,78 @@ class MPPIController:
         # self.Sigma shape: (CONTROL_SIZE, CONTROL_SIZE)
         # intermediate shape: (1, CONTROL_SIZE)
 
-        intermediate = self._lambda * torch.mm(intermediate, self.Epsilon[:,:,t-1])
+        intermediate = torch.mm(intermediate, self.Epsilon[:,:,t-1])
+        intermediate.mul_(self._lambda)
         # self.Epsilon[:,:,t-1] shape: (CONTROL_SIZE, K)
         # intermediate shape: (1, K)
         # Lambda: Scalar
 
         ti_precost = time.time()
-        current_cost = self.running_cost(x_t, self.goal, deltas).view(1, self.K)
-        # current_cost shape: (1, K)
+        current_cost = self.running_cost(self.x_t, self.goal, deltas)
+        # current_cost shape: (K)
         # print('POSE at time ' + str(t) + ': ', x_t)
         # print('GOAL: ', self.goal)
         # print('COST: ', current_cost)
 
         ti_pretrajc = time.time()
-        self.Trajectory_cost += current_cost + intermediate
-        # current_cost shape: (1, K)
+        #self.Trajectory_cost += current_cost + intermediate
+        self.Trajectory_cost.add_(current_cost)
+        self.Trajectory_cost.add_(intermediate)
+        # current_cost shape: (K)
         # intermediate shape: (1, K)
         # self.Trajectory_cost shape: (1, K)
 
-        trajectories[:, :, t] = x_t.transpose(0, 1)
+        self.trajectories[:, :, t].add_(self.x_t.transpose(0, 1))
 
         ti_finalizing = time.time()
-        x_tminus1 = x_t
+        self.x_tminus1 = self.x_t
+        #self.x_tminus1.zero_()
+        #self.x_tminus1.add_(self.x_t)
+        #self.x_tminus1 = self.x_t.clone()
         benchprint(1, "iter", t, ": ", ti_prenn - ti0, " ", ti_postnn - ti_prenn, " ", ti_preint - ti_postnn, " ", ti_precost - ti_preint, " ", ti_pretrajc - ti_precost, " ", ti_finalizing - ti_pretrajc)
 
     titered = time.time() #200ms
 
+    print('For loop: ', titered -tinit)
+
     beta = torch.min(self.Trajectory_cost)
-    print('Beta: ', beta)
-    trajectoryMinusMin = self.Trajectory_cost - beta
-    trajectoryMinusMin *= (-1.0 / self._lambda)
-    #dprint('Trajectory - Beta: ', trajectoryMinusMin)
-    n = torch.sum(torch.exp(trajectoryMinusMin))
-    #dprint('n: ', n)
-    omega = (1.0/ n) * torch.exp(trajectoryMinusMin)
-    #dprint('omega: ', omega)
+    #print('Beta: ', beta)
+    #self.trajectoryMinusMin.zero_()
+    trajectoryMinusMin = (self.Trajectory_cost.sub(beta))
+    trajectoryMinusMin.mul_((-1.0 / self._lambda))
+    # trajectoryMinusMin shape: (1, K)
+
+    self.omega.zero_()
+    self.omega.add_(torch.exp(trajectoryMinusMin))
+    n = torch.sum(self.omega)
+    self.omega.mul_(1.0 / n)
     # omega shape: (1, K)
 
-    for t in range(self.T):
-        omega = omega.expand(CONTROL_SIZE, -1) # Check this!
-        #dprint('Omega shape: ', omega.size())
-        #dprint('Omega: ', omega)
-        # omega shape: (CONTROL_SIZE, K)
-        delta_control = torch.sum(omega * self.Epsilon[:,:,t], dim=1).view(CONTROL_SIZE, 1)
-        #dprint('Delta control shape: ', delta_control.size())
-        # self.Epsilon[:, :, t] shape: (CONTROL_SIZE, K)
-        # delta_control shape: (CONTROL_SIZE, 1)
-        self.U[:, :, t] += delta_control
-        # self.U[:, :, t] shape: (CONTROL_SIZE, K)
-        #print('Control at time ' + str(t) + ': ' + str(self.U[:, 0, t]))
+
+    #self.omega_expand.zero_()
+    omega_expand = (self.omega.expand(CONTROL_SIZE, -1).unsqueeze(2).expand(-1, -1, self.T)) # Check this!
+    #self.pre_delta_control.zero_()
+    pre_delta_control = (torch.sum(omega_expand.mul(self.Epsilon), dim=1)) # (CONTROL_SIZE, T)
+
+    #delta_control.zero_()
+    delta_control = (pre_delta_control.unsqueeze(1).expand(-1, self.K, -1))
+    self.U.add_(delta_control)
+
+    # for t in range(self.T):
+    #     # omega shape: (CONTROL_SIZE, K)
+    #     delta_control = torch.sum(omega_expand.mul(self.Epsilon[:,:,t]), dim=1).view(CONTROL_SIZE, 1)
+    #     #dprint('Delta control shape: ', delta_control.size())
+    #     # self.Epsilon[:, :, t] shape: (CONTROL_SIZE, K)
+    #     # delta_control shape: (CONTROL_SIZE, 1)
+    #     self.U[:, :, t].add_(delta_control)
+    #     # self.U[:, :, t] shape: (CONTROL_SIZE, K)
+    #     #print('Control at time ' + str(t) + ': ' + str(self.U[:, 0, t]))
 
     # dprint("Validate U:", self.U)
     tuupdated = time.time() # 7ms
 
-    controls = noisyU[:, :, 0]# * self.Trajectory_cost
+    #controls = self.noisyU[:, :, 0]# * self.Trajectory_cost
+    controls = self.U[:,:,0]
     # noisyU shape: (CONTROL_SIZE, K, T)
     # noisyU[:, :, 0]
     # self.Trajectory_cost shape: (1, self.K)
@@ -497,7 +507,7 @@ class MPPIController:
 
     # tinit titered tuupdated tending tfinal
     benchprint(0, "Benchmark", (tinit - t0), " ", (titered - tinit), " ", (tuupdated - titered), " ", (tending - tuupdated), " ", (tfinal - tending))
-    return run_ctrl, trajectories[:, best_trajectory_indices, :]
+    return run_ctrl, self.trajectories[:, best_trajectory_indices, :]
 
   # Reads Particle Filter Messages
   # ALSO do we need to make sure our Thetas are between -pi and pi???????
@@ -520,13 +530,15 @@ class MPPIController:
     curr_pose = self.dtype([msg.pose.position.x,
                           msg.pose.position.y,
                           theta])
-    valid = self.out_of_bounds(curr_pose)
-    if not valid:
-        return
+    #t_temp = time.time()
+    #valid = self.out_of_bounds(curr_pose)
+    #print('valid time: ', time.time()-t_temp)
+    #if not valid:
+    #    return
 
     # print("Got mppi_cb: ", msg, curr_pose)
 
-    pose_dot = curr_pose - self.last_pose # get state
+    pose_dot = curr_pose.sub(self.last_pose) # get state
     pose_dot[2] = wrap_pi_pi_number(pose_dot[2]) # This was not in skeleton code: Clamp Theta between -pi and pi
     self.last_pose = curr_pose
 
@@ -534,35 +546,23 @@ class MPPIController:
     dt = timenow - self.lasttime
     dt = 0.1 # from dt to 0.1
     self.lasttime = timenow
-    nn_input = np.array([pose_dot[0], pose_dot[1], pose_dot[2],
+    self.neural_net_input.zero_()
+    self.neural_net_input = self.dtype([pose_dot[0], pose_dot[1], pose_dot[2],
                          np.sin(theta),
                          np.cos(theta), 0.0, 0.0, dt])
 
-    run_ctrl, poses = self.mppi(curr_pose, nn_input)
-    run_ctrl = run_ctrl.view(CONTROL_SIZE)
-    #run_ctrl_np = run_ctrl.cpu().numpy().reshape((2,))
+    run_ctrl, poses = self.mppi(curr_pose)#, nn_input)
+    #run_ctrl = run_ctrl.view(CONTROL_SIZE)
 
     self.U[:,:,0:self.T-1] = self.U[:,:,1:self.T]
     self.U[:,:,self.T-1] = 0
 
-    # seed_speeds = torch.from_numpy(np.random.uniform(-1.0, 1.0, (self.K))).type(self.dtype)
-    # seed_steerings = torch.from_numpy(np.random.uniform(-0.28, 0.28, (self.K))).type(self.dtype)
-    # w = 0.15
-    # self.U[0,:,self.T-1] = self.U[0,:,self.T-1] * (1.0 - w) + seed_speeds * w
-    # self.U[1,:,self.T-1] = self.U[1,:,self.T-1] * (1.0 - w) + seed_steerings * w
-
-    # self.U[0,:,self.T-1] = torch.from_numpy(np.random.uniform(-1, 1, (self.K)))
-    # self.U[1,:,self.T-1] = torch.from_numpy(np.random.uniform(-0.28, 0.28, (self.K)))
-    # self.U[0,:,self.T-1] = torch.from_numpy(np.random.uniform(-1, 1, (self.K)))
-    # self.U[1,:,self.T-1] = torch.from_numpy(np.random.uniform(-0.28, 0.28, (self.K)))
-
     self.send_controls( run_ctrl[0], run_ctrl[1] )
-
 
     self.visualize(poses)
 
   def send_controls(self, speed, steer):
-    print("Speed:", speed, "Steering:", steer)
+    #print("Speed:", speed, "Steering:", steer)
     ctrlmsg = AckermannDriveStamped()
     ctrlmsg.header.seq = self.msgid
     ctrlmsg.drive.steering_angle = steer
@@ -584,62 +584,6 @@ class MPPIController:
         pa.poses = map(Utils.particle_to_posestamped, particle_trajectory, [frame_id]*self.T)
         self.path_pub.publish(pa)
 
-def test_MPPI(mp, N, goal=np.array([0.,0.,0.])):
-  init_input = np.array([0.,0.,0.,0.,1.,0.,0.,0.])
-  pose = np.array([0.,0.,0.])
-  mp.goal = goal
-  print("Start:", pose)
-  mp.ctrl.zero_()
-  last_pose = np.array([0.,0.,0.])
-  for i in range(0,N):
-    # ROLLOUT your MPPI function to go from a known location to a specified
-    # goal pose. Convince yourself that it works.
-
-    print("Now:", pose)
-  print("End:", pose)
-
-def small_test_MPPI(mp, motion_model, i):
-  # new_lambda = mp._lambda * 0.99 # * np.exp(-i / 4.0)
-  # mp.update_lambda(new_lambda)
-  print('New Lambda: ', mp._lambda)
-  if mp.last_pose is None:
-    mp.last_pose = np.array([0., 0., 0.])
-    mp.lasttime = time.time()
-    return
-
-  curr_pose = motion_model.particles[0]
-  theta = motion_model.particles[0][2]
-
-  pose_dot = curr_pose - mp.last_pose # get state
-  mp.last_pose = curr_pose
-
-  dt = 0.1#time.time() - mp.lasttime
-  mp.lasttime = time.time()
-
-  pose_dot[2] = wrap_pi_pi_number(pose_dot[2])
-
-  # print("Pose dot: ", pose_dot)
-
-  if True:#mp.last_control is None: TURNS OUT MOVING WITH PURE NOISE WORKS A LOT BETTER
-      nn_input = np.array([pose_dot[0], pose_dot[1], pose_dot[2], np.sin(theta), np.cos(theta), 0.0, 0.0, dt])
-  else:
-      nn_input = np.array([pose_dot[0], pose_dot[1], pose_dot[2], np.sin(theta), np.cos(theta), mp.last_control[0], mp.last_control[1], dt])
-
-  # print("NN input", nn_input)
-
-  run_ctrl, poses = mp.mppi(curr_pose, nn_input)
-  run_ctrl = run_ctrl.view(CONTROL_SIZE)
-
-  print("Decided control", run_ctrl)
-
-  mp.U[:,:,0:mp.T-1] = mp.U[:,:,1:mp.T]
-  mp.U[:,:,mp.T-1] = 0.0
-
-  motion_model.update([run_ctrl[0], run_ctrl[1], dt]) # Speed, Steering, dt
-  mp.last_control = run_ctrl
-
-  print("Moved with control", run_ctrl, "to", motion_model.particles[0], " ", wrap_pi_pi_number(motion_model.particles[0][2]))
-
 if __name__ == '__main__':
   if CUDA:
     print('CUDA is available')
@@ -647,26 +591,11 @@ if __name__ == '__main__':
     print('CUDA is NOT available')
 
   T = 50#20
-  K = 2000#2000
-  sigma = [0.2, 0.05]#[0.1, 0.1] # These values will need to be tuned
-  _lambda = 1 # 0.1 #1e-4 # 1.0
+  K = 1000#2000
+  sigma = [0.2, 0.1]#[0.1, 0.1] # These values will need to be tuned
 
-  if IS_ON_ROBOT:
-    rospy.init_node("mppi_control", anonymous=True) # Initialize the node
-    mp = MPPIController(T, K, sigma, _lambda)
-    rospy.spin()
-  else:
-    # test & DEBUG
-    mp = MPPIController(T, K, sigma, _lambda)
-    if CUDA:
-        mp.goal = torch.cuda.FloatTensor([2., 2., 0.])
-    else:
-        mp.goal = torch.FloatTensor([2., 2., 0.])
-    nparticles = 1#1000
-    particles = np.zeros((nparticles, 3), dtype=float)
-    motion_model = InternalKinematicMotionModel(particles, np.array([[0.0, 0.003], [0.0, 0.003]]), useNoise=False)
-    i = 1
-    while(True):
-        small_test_MPPI(mp, motion_model, i)
-        i += 1
-    #test_MPPI(mp, 10, np.array([0.,0.,0.]))
+  _lambda = .5 # 0.1 #1e-4 # 1.0
+
+  rospy.init_node("mppi_control", anonymous=True) # Initialize the node
+  mp = MPPIController(T, K, sigma, _lambda)
+  rospy.spin()

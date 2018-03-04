@@ -10,6 +10,10 @@ import tf.transformations
 import tf
 import matplotlib.pyplot as plt
 
+import time
+import torch
+import torch.utils.data
+
 def angle_to_quaternion(angle):
     """Convert an angle in radians into a quaternion _message_."""
     return Quaternion(*tf.transformations.quaternion_from_euler(0, 0, angle))
@@ -86,19 +90,33 @@ def world_to_map(poses, map_info):
     # equivalent to map_to_grid(world_to_map(poses))
     # operates in place
     scale = map_info.resolution
+
+    t0 = time.time()
+
     angle = -quaternion_to_angle(map_info.origin.orientation)
 
+    t1 = time.time()
+
     # translation
-    poses[:,0] -= map_info.origin.position.x
-    poses[:,1] -= map_info.origin.position.y
+    poses[:,0].sub_(map_info.origin.position.x)
+    poses[:,1].sub_(map_info.origin.position.y)
+
 
     # scale
-    poses[:,:2] *= (1.0/float(scale))
+    poses[:,:2].mul_((1.0/float(scale)))
+
+    t2 = time.time()
 
     # rotation
     c, s = np.cos(angle), np.sin(angle)
     # we need to store the x coordinates since they will be overwritten
-    temp = poses[:,0].clone()
-    poses[:,0] = c*poses[:,0] - s*poses[:,1]
-    poses[:,1] = s*temp       + c*poses[:,1]
-    poses[:,2] += angle
+    temp = poses.clone()
+
+    poses.zero_()
+
+    poses[:,0].add_(torch.mul(temp[:,0],c)).sub_(torch.mul(temp[:,1],s))
+    poses[:,1].add_(torch.mul(temp[:,0],s)).add_(torch.mul(temp[:,1],c))
+    poses[:,2].add_(angle)
+
+    t3 = time.time()
+    #print(t1 - t0, t2 - t1, t3 - t2)
