@@ -166,7 +166,7 @@ class MPPIController:
         print('Sum in permissible region before: ', np.sum(self.permissible_region))
 
         indices = np.argwhere(array_255 == 100)
-        bufferSize = 6 # Tune this
+        bufferSize = 10 # Tune this
         for i in range(0, bufferSize + 1): # Create buffer between car and walls
             print('i: ', i)
 	    delta = i
