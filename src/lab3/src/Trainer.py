@@ -330,9 +330,10 @@ print(error(model))
 # The following are functions meant for debugging and sanity checking your
 # model. You should use these and / or design your own testing tools.
 # test_model starts at [0,0,0]; you can specify a control to be applied and the
-# rollout() function will use that control for N timesteps.
+# rollout() function will use that control for N steps.
 # i.e. a velocity value of 0.7 should drive the car to a positive x value.
-def rollout(m, nn_input, N):
+def rollout(model, nn_input, steps):
+    print('Generating Rollouts: ')
     pose = torch.zeros(3).cuda()
     x = []
     y = []
@@ -340,8 +341,8 @@ def rollout(m, nn_input, N):
     t = []
     s_values = [0.0, 0.0, 0.0, 0.0]
     print(pose.cpu().numpy())
-    for i in range(N):
-        out = m(Variable(nn_input))
+    for i in range(steps):
+        out = model(Variable(nn_input))
         pose.add_(out.data)
         # Wrap pi
         if pose[2] > 3.14:
@@ -375,16 +376,16 @@ def rollout(m, nn_input, N):
         #     plt.show()
 
 
-def test_model(m, N, dt = 0.1):
+def test_model(model, steps, dt = 0.1):
     cos, v, st = 4, 5, 6
     s = INPUT_SIZE
-    print("Nothing")
+    print("Testing No Velocity")
     nn_input = torch.zeros(s).cuda()
     nn_input[cos] = 1.0
     nn_input[7] = dt
     idle_xs, idle_ys, idle_thetas, idle_ts = rollout(m, nn_input, N)
 
-    print("Forward")
+    print("Testing Forward Velocity")
     nn_input = torch.zeros(s).cuda()
     nn_input[cos] = 1.0
     nn_input[v] = 0.7 #1.0

@@ -1,5 +1,7 @@
 <launch>
-	<!-- Launch an ROI node and pass any necessary parameters -->
+	<!-- Launch a Trainer node and pass any necessary parameters -->
+	<arg name="bag_path" default="$(find lab3)/data/motion_data2.bag" />
 	<node name="trainer" pkg="lab3" type="Trainer.py" output="screen">
+		<param name="bag_path" value="$( arg bag_path )" />
 	</node>
 </launch>

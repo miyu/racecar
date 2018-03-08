@@ -127,6 +127,10 @@ class MPPIController:
     print("Loading:", MODEL_FILENAME)
     print("Model:\n",self.model)
     print("Torch Datatype:", self.dtype)
+    self.U = torch.cuda.FloatTensor(CONTROL_SIZE, self.K, self.T).zero_()
+    self.Sigma = torch.cuda.FloatTensor(CONTROL_SIZE,CONTROL_SIZE).zero_()
+    self.Epsilon = torch.cuda.FloatTensor(CONTROL_SIZE, self.K, self.T).zero_()
+    self.Trajectory_cost = torch.cuda.FloatTensor(self.K, 1).zero_()
 
     # control outputs
     self.msgid = 0
@@ -570,7 +574,11 @@ class MPPIController:
     self.U[:,:,0:self.T-1] = self.U[:,:,1:self.T]
     self.U[:,:,self.T-1] = 0
 
+    self.U[:,:,0:self.T-1] = self.U[:,:,1:self.T]
+    self.U[:,:,self.T-1] = 0.0
+
     self.send_controls( run_ctrl[0], run_ctrl[1] )
+
 
     self.visualize(poses)
 
@@ -596,6 +604,20 @@ class MPPIController:
           print("trajectory", i, ": ", particle_trajectory)
         pa.poses = map(Utils.particle_to_posestamped, particle_trajectory, [frame_id]*self.T)
         self.path_pub.publish(pa)
+
+def test_MPPI(mp, N, goal=np.array([0.,0.,0.])):
+  init_input = np.array([0.,0.,0.,0.,1.,0.,0.,0.])
+  pose = np.array([0.,0.,0.])
+  mp.goal = goal
+  print("Start:", pose)
+  mp.ctrl.zero_()
+  last_pose = np.array([0.,0.,0.])
+  for i in range(0,N):
+    # ROLLOUT your MPPI function to go from a known location to a specified
+    # goal pose. Convince yourself that it works.
+
+    print("Now:", pose)
+  print("End:", pose)
 
 if __name__ == '__main__':
   if CUDA:
