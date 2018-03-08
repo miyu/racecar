@@ -116,6 +116,8 @@ class MPPIController:
     self.x_tminus1 = self.dtype(self.K, 3).zero_()
     self.x_t = self.dtype(self.K, 3).zero_()
 
+    self.intermediate = self.dtype(1,self.K).zero_()
+
     #self.pre_delta_control = self.dtype(CONTROL_SIZE, self.T).zero_()
     #self.delta_control = self.dtype(CONTROL_SIZE, self.K, self.T).zero_()
     #self.omega_expand = self.dtype(CONTROL_SIZE, self.K, self.T).zero_()
@@ -164,7 +166,7 @@ class MPPIController:
         print('Sum in permissible region before: ', np.sum(self.permissible_region))
 
         indices = np.argwhere(array_255 == 100)
-        bufferSize = 12 # Tune this
+        bufferSize = 6 # Tune this
         for i in range(0, bufferSize + 1): # Create buffer between car and walls
             print('i: ', i)
 	    delta = i
@@ -225,13 +227,13 @@ class MPPIController:
     grid_poses = poses.clone()
     dprint('World Poses: ', grid_poses)
 
-    t1 = time.time()
+    # t1 = time.time()
     #print('time for clone:', t1 - t0)
 
     Utils.world_to_map(grid_poses, self.map_info)
 
-    t2 = time.time()
-    dprint('time for util:', t2 - t1)
+    # t2 = time.time()
+    # print('time for util:', t2 - t1)
 
     dprint('Grid Poses: ', grid_poses)
     grid_poses.round_() # It's important to round, not floor
@@ -243,15 +245,15 @@ class MPPIController:
     #grid_poses = grid_poses[:, :2] # Gets rid of theta
     grid_poses = grid_poses.type(torch.cuda.LongTensor)
 
-    # t4 = time.time()
-    # print('time for type:', t4 - t3)
+    #t4 = time.time()
+    #print('time for type:', t4 - t3)
 
 
     #map_indices = grid_poses[:, 0] + grid_poses[:, 1]
     occupancyValues = self.permissible_region_torch[grid_poses[:, 1], grid_poses[:, 0]]
 
-    # t5 = time.time()
-    # print('time for occupancy:', t5 - t4)
+    #t5 = time.time()
+    #print('time for occupancy:', t5 - t4)
 
 
     return occupancyValues
@@ -289,8 +291,8 @@ class MPPIController:
     pose[:, 2] = wrap_pi_pi_tensor(pose[:, 2])
 
     tsqrt = time.time()
-    self.pose_cost.zero_()
-    self.pose_cost.add_(torch.sum(torch.pow(pose, 2), dim=1))#.add(torch.pow(pose[:,2].div(3), 2))
+    #self.pose_cost.zero_()
+    self.pose_cost = (torch.sum(torch.pow(pose, 2), dim=1))#.add(torch.pow(pose[:,2].div(3), 2))
     self.pose_cost.sqrt_()
 
     pose.add_(goal)
@@ -302,8 +304,8 @@ class MPPIController:
     tprepermissible = time.time()
 
     # 0 is permissible, -1 is not
-    self.bounds_check.zero_()
-    self.bounds_check.add_(self.out_of_bounds_poses(pose))
+    #self.bounds_check.zero_()
+    self.bounds_check =(self.out_of_bounds_poses(pose))
     self.bounds_check.mul_(1e4)
     #bounds_check = 0.0
     #print('Bounds Cost: ', torch.max(bounds_check))
@@ -397,9 +399,9 @@ class MPPIController:
 
         self.neural_net_input_torch[:, 0:3] = deltas
 
-        dprint("Inputs:", self.neural_net_input_torch)
-        dprint("Deltas:", deltas)
-        dprint("@t-1:", t, self.x_tminus1)
+        #print("Inputs:", self.neural_net_input_torch)
+        #print("Deltas:", deltas)
+        #print("@t-1:", t, self.x_tminus1)
         #self.x_t.zero_()
         #self.x_t.add_(self.x_tminus1.add(deltas))
         self.x_t = self.x_tminus1.add(deltas)
@@ -412,12 +414,12 @@ class MPPIController:
         ti_preint = time.time()
 
         # u_tminus1 shape: (1, CONTROL_SIZE)
-        intermediate = torch.mm(u_tminus1, self.SigmaInv)
+        pre_intermediate = torch.mm(u_tminus1, self.SigmaInv)
         # self.Sigma shape: (CONTROL_SIZE, CONTROL_SIZE)
         # intermediate shape: (1, CONTROL_SIZE)
 
-        intermediate = torch.mm(intermediate, self.Epsilon[:,:,t-1])
-        intermediate.mul_(self._lambda)
+        self.intermediate = torch.mm(pre_intermediate, self.Epsilon[:,:,t-1])
+        self.intermediate.mul_(self._lambda)
         # self.Epsilon[:,:,t-1] shape: (CONTROL_SIZE, K)
         # intermediate shape: (1, K)
         # Lambda: Scalar
@@ -430,25 +432,29 @@ class MPPIController:
         # print('COST: ', current_cost)
 
         ti_pretrajc = time.time()
+
+        #print('adsf: ', ti_pretrajc - ti_precost)
         #self.Trajectory_cost += current_cost + intermediate
         self.Trajectory_cost.add_(current_cost)
-        self.Trajectory_cost.add_(intermediate)
+        self.Trajectory_cost.add_(self.intermediate)
         # current_cost shape: (K)
         # intermediate shape: (1, K)
         # self.Trajectory_cost shape: (1, K)
 
         self.trajectories[:, :, t].add_(self.x_t.transpose(0, 1))
 
-        ti_finalizing = time.time()
         self.x_tminus1 = self.x_t
+
+        ti_finalizing = time.time()
         #self.x_tminus1.zero_()
         #self.x_tminus1.add_(self.x_t)
         #self.x_tminus1 = self.x_t.clone()
         benchprint(1, "iter", t, ": ", ti_prenn - ti0, " ", ti_postnn - ti_prenn, " ", ti_preint - ti_postnn, " ", ti_precost - ti_preint, " ", ti_pretrajc - ti_precost, " ", ti_finalizing - ti_pretrajc)
 
+
     titered = time.time() #200ms
 
-    print('For loop: ', titered -tinit)
+    #print('For loop: ', titered -tinit)
 
     beta = torch.min(self.Trajectory_cost)
     #print('Beta: ', beta)
@@ -495,18 +501,25 @@ class MPPIController:
     dprint("Trajectory costs:", self.Trajectory_cost)
     best_cost, best_index = torch.min(self.Trajectory_cost, 1)
     dprint("Best index: ", best_index, "has cost", best_cost)
-    run_ctrl = controls[:, best_index]
+    #run_ctrl = controls[:, best_index]
+    run_ctrl = controls[:,0]
     # dprint("Which is control", run_ctrl)
     # run_ctrl shape: (CONTROL_SIZE)
 
     # dprint("MPPI: %4.5f ms" % ((time.time()-t0)*1000.0))00
     tending = time.time() #0.2ms
 
-    best_trajectory_indices = [x for x in reversed(sorted(range(self.K), key=lambda i: self.Trajectory_cost[0, i]))]
+    #best_trajectory_indices = [x for x in reversed(sorted(range(self.K), key=lambda i: self.Trajectory_cost[0, i]))]
+
+
+    ## ALL COST IS GREATER THAN 0
+    best_trajectory_indices = torch.sort(self.Trajectory_cost[0,:], descending = False)[1]
     tfinal = time.time() #12ms
 
     # tinit titered tuupdated tending tfinal
     benchprint(0, "Benchmark", (tinit - t0), " ", (titered - tinit), " ", (tuupdated - titered), " ", (tending - tuupdated), " ", (tfinal - tending))
+    #print(0, "Benchmark", (tinit - t0), " ", (titered - tinit), " ", (tuupdated - titered), " ", (tending - tuupdated), " ", (tfinal - tending))
+
     return run_ctrl, self.trajectories[:, best_trajectory_indices, :]
 
   # Reads Particle Filter Messages
@@ -544,7 +557,7 @@ class MPPIController:
 
     timenow = msg.header.stamp.to_sec()
     dt = timenow - self.lasttime
-    dt = 0.1 # from dt to 0.1
+    #dt = 0.1 # from dt to 0.1
     self.lasttime = timenow
     self.neural_net_input.zero_()
     self.neural_net_input = self.dtype([pose_dot[0], pose_dot[1], pose_dot[2],
@@ -590,11 +603,13 @@ if __name__ == '__main__':
   else:
     print('CUDA is NOT available')
 
-  T = 50#20
-  K = 1000#2000
-  sigma = [0.2, 0.1]#[0.1, 0.1] # These values will need to be tuned
+  # Setting T = 20, K = 800 will have a frequnecy of 10 Hz
+  # So try different combanition of T, K with a product of ~16000
+  T = 30 #20
+  K = 800 #800
+  sigma = [0.8, 0.3]#[0.1, 0.1] # These values will need to be tuned
 
-  _lambda = .5 # 0.1 #1e-4 # 1.0
+  _lambda = .8 # 0.1 #1e-4 # 1.0
 
   rospy.init_node("mppi_control", anonymous=True) # Initialize the node
   mp = MPPIController(T, K, sigma, _lambda)
