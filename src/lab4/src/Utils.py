@@ -37,7 +37,7 @@ def world_to_map(pose, map_info):
     config[0] = (1.0/float(scale))*(pose[0] - map_info.origin.position.x)
     config[1] = (1.0/float(scale))*(pose[1] - map_info.origin.position.y)
     config[2] = pose[2]
-   
+
 
     # rotation
     c, s = np.cos(angle), np.sin(angle)
@@ -46,7 +46,7 @@ def world_to_map(pose, map_info):
     config[0] = int(c*config[0] - s*config[1])
     config[1] = int(s*temp       + c*config[1])
     config[2] += angle
-    
+
     return config
-      
+
 # TODO: You may want to add a map_to_world function

@@ -1,6 +1,6 @@
 import math
 import numpy
-import IPython
+#import IPython
 import Dubins
 import KinematicModel as model
 from matplotlib import pyplot as plt
@@ -10,7 +10,7 @@ import time
 import random
 
 class HaltonPlanner(object):
-  
+
   # planningEnv: Should be a HaltonEnvironment
   def __init__(self, planningEnv):
     self.planningEnv = planningEnv
@@ -25,11 +25,11 @@ class HaltonPlanner(object):
     self.closed = {} # The closed list
     self.parent = {self.sid:None} # A dictionary mapping children to their parents
     self.open = {self.sid: 0 + self.planningEnv.get_heuristic(self.sid, self.tid)} # The open list
-    self.gValues = {self.sid:0} # A mapping from node to shortest found path length to that node 
+    self.gValues = {self.sid:0} # A mapping from node to shortest found path length to that node
 
     # ------------------------------------------------------------
     # YOUR CODE HERE
-    # 
+    #
     # Implement A*
     # Functions that you will probably use
     # - self.get_solution()
@@ -52,18 +52,18 @@ class HaltonPlanner(object):
     while elapsed < timeout: # Keep going until out of time
       # ---------------------------------------------------------
       # YOUR CODE HERE
-      
+
       # Pseudocode
-      
+
       # Pick random id i
       # Pick random id j
       # Redraw if i == j
       # Switch i and j if i > j
-     
+
       # if we can find path between i and j (Hint: look inside ObstacleManager.py for a suitable function)
         # Get the path (Hint: use Dubins)
         # Reformat the plan such that the new path is inserted and the old section of the path is removed between i and j
-        # Be sure to CAREFULLY inspect the data formats of both the original plan and the plan returned by Dubins 
+        # Be sure to CAREFULLY inspect the data formats of both the original plan and the plan returned by Dubins
         # to ensure that you edit the path correctly
       # ----------------------------------------------------------
       elapsed = time.time() - t1
@@ -74,7 +74,7 @@ class HaltonPlanner(object):
   def get_solution(self, vid):
 
     # Get all the node ids
-    planID = [] 
+    planID = []
     while vid is not None:
       planID.append(vid)
       vid = self.parent[vid]
@@ -95,7 +95,7 @@ class HaltonPlanner(object):
     # Get the map
     envMap = 255*(self.planningEnv.manager.mapImageBW+1) # Hacky way to get correct coloring
     envMap = cv2.cvtColor(envMap, cv2.COLOR_GRAY2RGB)
-    
+
     for i in range(numpy.shape(plan)[0]-1): # Draw lines between each configuration in the plan
       startPixel = Utils.world_to_map(plan[i], self.planningEnv.manager.map_info)
       goalPixel = Utils.world_to_map(plan[i+1], self.planningEnv.manager.map_info)

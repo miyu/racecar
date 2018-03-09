@@ -203,6 +203,8 @@ def dubins_path_planning_from_origin(ex, ey, eyaw, c):
 
   return px, py, pyaw, best_mode, best_cost
 
+
+
 def dubins_path_planning(s, e, c):
   """
   Dubins path plannner

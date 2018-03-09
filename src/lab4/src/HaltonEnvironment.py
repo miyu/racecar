@@ -4,7 +4,7 @@
 import os
 import math
 import numpy
-import IPython
+#import IPython
 import Dubins
 import GraphGenerator
 import networkx as nx
@@ -38,21 +38,21 @@ class HaltonEnvironment(object):
         print "ERROR: map file not found!"
         quit()
       self.graph = nx.read_graphml(graphFile) # Load the graph
-      
+
       # Insert source and target if provided
       if source is not None:
         GraphGenerator.insert_vertices(self.graph, [source], self.radius)
 
       if target is not None:
         GraphGenerator.insert_vertices(self.graph, [target], self.radius)
- 
+
   # Prepares the graph for planning from source to target
   # source: the starting position of the car (in meters and radians)
   # target: the target position of the car (in meters and radians)
   def set_source_and_target(self, source, target):
     self.source = source
     self.target = target
-    GraphGenerator.insert_vertices(self.graph, [source, target], self.radius)  
+    GraphGenerator.insert_vertices(self.graph, [source, target], self.radius)
 
   # Get the configuration associated with a node id
   def get_config(self, vid):
