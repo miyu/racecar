@@ -8,12 +8,12 @@ import math
 import numpy
 import Dubins
 import KinematicModel as model
-import IPython
 from ObstacleManager import ObstacleManager
+#import IPython
 
 # Halton Sequence Generator
 def halton_sequence_value(index, base):
-    
+
     result = 0
     f = 1
 
@@ -21,7 +21,7 @@ def halton_sequence_value(index, base):
         f = f*1.0/base
         result = result + f*(index % base)
         index = index/base
-    
+
     return result
 
 # Wrap the values around 0 and 1
@@ -52,11 +52,11 @@ def euclidean_halton_graph(n, radius, bases, lower, upper, source, target, mapFi
     haltonIndex = 1
 
     if source is not None:
-      position.append(source)
-      num_vertices += 1
+        position.append(source)
+        num_vertices += 1
     if target is not None:
-      position.append(target)
-      num_vertices += 1
+        position.append(target)
+        num_vertices += 1
 
     while numVertices < n:
         p = wrap_around(numpy.array([halton_sequence_value(haltonIndex,base) for base in bases]))
@@ -74,49 +74,46 @@ def euclidean_halton_graph(n, radius, bases, lower, upper, source, target, mapFi
         node_id = i
         G.add_node(str(node_id), state = state[i])
 
-    for i in range(n-1):     
+    for i in range(n-1):
         print i
         for j in range(i+1,n):
             edgeLength = Dubins.path_length(position[i], position[j], 1.0/model.TURNING_RADIUS)
             euclideanLength = numpy.linalg.norm(position[i][0:2] - position[j][0:2])
             if edgeLength < radius:
-                G.add_edge(str(i), str(j), length = str(edgeLength)) 
+                G.add_edge(str(i), str(j), length = str(edgeLength))
             edgeLength = Dubins.path_length(position[j], position[i], 1.0/model.TURNING_RADIUS)
             if edgeLength < radius:
-                G.add_edge(str(j), str(i), length = str(edgeLength)) 
+                G.add_edge(str(j), str(i), length = str(edgeLength))
     return G
 
 def insert_vertices(G, configs, radius):
-
     numVertices = G.number_of_nodes()
     for config in configs:
         state = " ".join(str(x) for x in config)
         G.add_node(str(numVertices), state = state)
         for i in range(numVertices):
             position = [float(a) for a in G.node[str(i)]["state"].split()]
-            
+
             edgeLength = Dubins.path_length(config, position, 1.0/model.TURNING_RADIUS)
             if edgeLength < radius:
                 G.add_edge(str(numVertices), str(i), length = str(edgeLength))
-            
+
             edgeLength = Dubins.path_length(position, config, 1.0/model.TURNING_RADIUS)
             if edgeLength < radius:
                 G.add_edge(str(i), str(numVertices), length = str(edgeLength))
         numVertices += 1
-
     #nx.write_graphml(G, "currentHalton.graphml")
-
 # Main Function
 if __name__ == "__main__":
     rospy.init_node("generate_graph")
     map_service_name = rospy.get_param("~static_map", "static_map")
     print("Getting map from service: ", map_service_name)
     rospy.wait_for_service(map_service_name)
-    
+
     graph_file = rospy.get_param("~graph_file", None)
     map_msg = rospy.ServiceProxy(map_service_name, GetMap)().map
     map_info = map_msg.info
-    
+
     spaceDimension = 3
 
     if spaceDimension == 3:

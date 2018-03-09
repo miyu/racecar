@@ -1,5 +1,5 @@
 import math
-import IPython
+#import IPython
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -112,7 +112,7 @@ def RLR(alpha, beta, d):
 
 # alpha: The opposite of the angle of the end position
 # beta: The difference between desired end yaw and the angle of the end position
-# d: The straight-line-distance/turning-radius   
+# d: The straight-line-distance/turning-radius
 def LRL(alpha, beta, d):
   sa = math.sin(alpha)
   sb = math.sin(beta)
@@ -152,13 +152,52 @@ def dubins_path_planning_from_origin(ex, ey, eyaw, c):
   #
   # Loop through all 6 of the planners, asking each one to compute a path
   #   Each planner will return t,p,q and mode
-  #   t is the (signed) arc length of the first portion of the path, 
+  #   t is the (signed) arc length of the first portion of the path,
   #   p is (signed) arc length of the second portion, q is (signed) arc length of the third portion
   #   mode indicates which planner the path came from
   # Find the planner that returns the path with the smallest total arc length, (abs(t) + abs(p) + abs(q))
   # Set best_t,best_p,best_q, and best_mode to the t,p,q,and mode returned by the best planner
   #--------------------------------------------------------------------
 
+  # This section is what I wrote
+  # CHECK HERE IF THIS SEEMS RIGHT!!!
+  t, p, q, mode = LSL(alpha, beta, d)
+  cost = abs(t)  + abs(p) + abs(q)
+  if(cost < best_cost):
+      best_t, best_p, best_q, best_mode = t,p,q,mode
+
+
+  t, p, q, mode = RSR(alpha, beta, d)
+  cost = abs(t)  + abs(p) + abs(q)
+  if(cost < best_cost):
+      best_t, best_p, best_q, best_mode = t,p,q,mode
+
+
+  t, p, q, mode = LSR(alpha, beta, d)
+  cost = abs(t)  + abs(p) + abs(q)
+  if(cost < best_cost):
+      best_t, best_p, best_q, best_mode = t,p,q,mode
+
+
+  t, p, q, mode = RSL(alpha, beta, d)
+  cost = abs(t)  + abs(p) + abs(q)
+  if(cost < best_cost):
+      best_t, best_p, best_q, best_mode = t,p,q,mode
+
+
+  t, p, q, mode = RLR(alpha, beta, d)
+  cost = abs(t)  + abs(p) + abs(q)
+  if(cost < best_cost):
+      best_t, best_p, best_q, best_mode = t,p,q,mode
+
+
+  t, p, q, mode = LRL(alpha, beta, d)
+  cost = abs(t)  + abs(p) + abs(q)
+  if(cost < best_cost):
+      best_t, best_p, best_q, best_mode = t,p,q,mode
+
+
+  # Up to here is where the seciton enda
 
   px, py, pyaw = generate_course([best_t, best_p, best_q], best_mode, c) # Turns arc lengths into points along path
 
@@ -184,7 +223,7 @@ def dubins_path_planning(s, e, c):
       mode
 
   """
-  
+
   sx, sy, syaw = s[0], s[1], s[2]
   ex, ey, eyaw = e[0], e[1], e[2]
 
@@ -287,6 +326,7 @@ def process_dubins(startx, starty, enda, px, py, pa, cost):
 
 def main():
   # Write TEST CODE HERE!
+  pass
 
 if __name__ == '__main__':
   main()

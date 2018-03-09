@@ -1,7 +1,7 @@
 import cv2
 import math
 import numpy
-import IPython
+#import IPython
 import Dubins
 import Utils
 import KinematicModel as model
@@ -22,8 +22,8 @@ class ObstacleManager(object):
     # Binarize the Image
     self.mapImageBW = 255*numpy.ones_like(self.mapImageGS, dtype=numpy.uint8)
     self.mapImageBW[self.mapImageGS==0] = 0
-    self.mapImageBW = self.mapImageBW[::-1,:,:] # Need to flip across the y-axis    
-    
+    self.mapImageBW = self.mapImageBW[::-1,:,:] # Need to flip across the y-axis
+
     # Obtain the car length and width in pixels
     self.robotWidth = int(model.CAR_WIDTH/self.map_info.resolution + 0.5)
     self.robotLength = int(model.CAR_LENGTH/self.map_info.resolution + 0.5)
@@ -47,7 +47,9 @@ class ObstacleManager(object):
     # map for simplicity
     # ----------------------------------------------------------
 
-    return True  
+    print 'Config: '  + config 
+
+    return True
 
   # Check if there is an unobstructed edge between the passed configs
   # config1, config2: The configurations to check (in meters and radians)
@@ -58,7 +60,7 @@ class ObstacleManager(object):
     #
     # Check if endpoints are obstructed, if either is, return false
     # Find path between two configs using Dubins
-    # Check if all configurations along Dubins path are obstructed 
+    # Check if all configurations along Dubins path are obstructed
     # -----------------------------------------------------------
 
     return True
@@ -67,3 +69,4 @@ class ObstacleManager(object):
 # Test
 if __name__ == '__main__':
   # Write test code here!
+  pass
