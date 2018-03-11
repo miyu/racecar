@@ -162,39 +162,57 @@ def dubins_path_planning_from_origin(ex, ey, eyaw, c):
   # This section is what I wrote
   # CHECK HERE IF THIS SEEMS RIGHT!!!
   t, p, q, mode = LSL(alpha, beta, d)
-  cost = abs(t)  + abs(p) + abs(q)
-  if(cost < best_cost):
-      best_t, best_p, best_q, best_mode = t,p,q,mode
+  if t is None or p is None or q is None:
+      print('LSL return none')
+  else:
+      cost = abs(t)  + abs(p) + abs(q)
+      if(cost < best_cost):
+          best_t, best_p, best_q, best_mode = t,p,q,mode
 
 
   t, p, q, mode = RSR(alpha, beta, d)
-  cost = abs(t)  + abs(p) + abs(q)
-  if(cost < best_cost):
-      best_t, best_p, best_q, best_mode = t,p,q,mode
+  if t is None or p is None or q is None:
+      print('RSR return none')
+  else:
+      cost = abs(t)  + abs(p) + abs(q)
+      if(cost < best_cost):
+          best_t, best_p, best_q, best_mode = t,p,q,mode
 
 
   t, p, q, mode = LSR(alpha, beta, d)
-  cost = abs(t)  + abs(p) + abs(q)
-  if(cost < best_cost):
-      best_t, best_p, best_q, best_mode = t,p,q,mode
+  if t is None or p is None or q is None:
+      print('LSR return none')
+  else:
+      cost = abs(t)  + abs(p) + abs(q)
+      if(cost < best_cost):
+          best_t, best_p, best_q, best_mode = t,p,q,mode
 
 
   t, p, q, mode = RSL(alpha, beta, d)
-  cost = abs(t)  + abs(p) + abs(q)
-  if(cost < best_cost):
-      best_t, best_p, best_q, best_mode = t,p,q,mode
+  if t is None or p is None or q is None:
+      print('RSL return none')
+  else:
+      cost = abs(t)  + abs(p) + abs(q)
+      if(cost < best_cost):
+          best_t, best_p, best_q, best_mode = t,p,q,mode
 
 
   t, p, q, mode = RLR(alpha, beta, d)
-  cost = abs(t)  + abs(p) + abs(q)
-  if(cost < best_cost):
-      best_t, best_p, best_q, best_mode = t,p,q,mode
+  if t is None or p is None or q is None:
+      print('RLR return none')
+  else:
+      cost = abs(t)  + abs(p) + abs(q)
+      if(cost < best_cost):
+          best_t, best_p, best_q, best_mode = t,p,q,mode
 
 
   t, p, q, mode = LRL(alpha, beta, d)
-  cost = abs(t)  + abs(p) + abs(q)
-  if(cost < best_cost):
-      best_t, best_p, best_q, best_mode = t,p,q,mode
+  if t is None or p is None or q is None:
+      print('LRL return none')
+  else:
+      cost = abs(t)  + abs(p) + abs(q)
+      if(cost < best_cost):
+          best_t, best_p, best_q, best_mode = t,p,q,mode
 
 
   # Up to here is where the seciton enda

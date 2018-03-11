@@ -22,6 +22,9 @@ class HaltonEnvironment(object):
 
     # Generate the Graph on the fly if required
     self.radius = 100
+
+    print("GraphFile: ", graphFile)
+
     if graphFile is None:
       n = 500
       bases = [2,3,5] # Should be prime numbers

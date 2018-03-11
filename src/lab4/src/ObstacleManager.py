@@ -63,9 +63,10 @@ class ObstacleManager(object):
 
     for i in range(-half_width, half_width):
         for j in range(-half_length, half_length):
-            if(self.mapImageBW[x + i, y+j] == 1):
-                print "We're exiting get_state_validity"
-                return False  # Hrio's NOTE: Meaning that is's invalid
+            if x+i < self.mapWidth and y +j < self.mapHeight:
+                if(self.mapImageBW[x + i, y+j] == 1):
+                    print "We're exiting get_state_validity"
+                    return False  # Hrio's NOTE: Meaning that is's invalid
     print "We're exiting get_state_validity"
 
     # This is where the section end
@@ -93,7 +94,7 @@ class ObstacleManager(object):
         return False
     print "Endpoint isn't obstructed"
 
-    curvature = .5  # Some random value for now
+    curvature = 1/model.TURNING_RADIUS  # Some random value for now
 
     # Hiro's NOTE: What is the curvature?
     ppx, ppy, ppyaw, pclen = dubins_path_planning(config1, config2, curvature)
@@ -108,7 +109,7 @@ class ObstacleManager(object):
     print "Path is not obstructed"
 
 
-    print "We're exiting get_edge_validity
+    print "We're exiting get_edge_validity"
 
     # This is where the section end
 
