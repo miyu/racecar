@@ -61,12 +61,11 @@ class ObstacleManager(object):
     y = mapConfig[1]
     angle = mapConfig[2]
 
-    for i in range(-half_width, half_width):
-        for j in range(-half_length, half_length):
-            if x+i < self.mapWidth and y +j < self.mapHeight:
-                if(self.mapImageBW[x + i, y+j] == 1):
-                    print "We're exiting get_state_validity"
-                    return False  # Hrio's NOTE: Meaning that is's invalid
+    for i in range(-half_width, half_width+1 ):
+        for j in range(-half_length, half_length+1):
+            if x+i >= self.mapWidth or y +j >= self.mapHeight or x+i <0 or
+               y+j < 0 or self.mapImageBW[x + i, y+j] == 1:
+                return False
     print "We're exiting get_state_validity"
 
     # This is where the section end
