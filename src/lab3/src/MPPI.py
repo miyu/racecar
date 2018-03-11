@@ -163,9 +163,9 @@ class MPPIController:
 
 
         ##############  FOR FINAL DEMO   plan.py
-        self.currentPlanWaypointIndex = 0
-        for i in range(50):
-            self.advance_to_next_goal()
+        self.currentPlanWaypointIndex = -1
+        #for i in range(1):
+        self.advance_to_next_goal()
 
         ##################
 
@@ -181,7 +181,7 @@ class MPPIController:
         print('Sum in permissible region before: ', np.sum(self.permissible_region))
 
         indices = np.argwhere(array_255 == 100)
-        bufferSize = 10 # Tune this
+        bufferSize = 8 # Tune this
         for i in range(0, bufferSize + 1): # Create buffer between car and walls
             print('i: ', i)
             delta = i
@@ -348,7 +348,7 @@ class MPPIController:
 
     tfinal = time.time()
 
-    # self.pose_cost.add_(self.bounds_check)
+    self.pose_cost.add_(self.bounds_check)
 
     benchprint(0, "calc", (tprewrap - t0), " ", (tsqrt - tprewrap), " ", (tprepermissible - tsqrt), " ", tfinal - tprepermissible)
     return self.pose_cost
@@ -569,7 +569,9 @@ class MPPIController:
                                  Utils.quaternion_to_angle(msg.pose.orientation)])
       # Default: initial goal to be where the car is when MPPI node is
       # initialized
-      self.goal = self.last_pose
+
+      # miyu - commented out for lab 4
+      #self.goal = self.last_pose
       self.lasttime = msg.header.stamp.to_sec()
       return
 
@@ -616,11 +618,11 @@ class MPPIController:
     diff = math.sqrt(diff)
     tol = .4
 
-    if (diff < tol ):
+    if (diff < tol ) and self.currentPlanWaypointIndex < len(plan):
+        print("Reached: ", self.currentPlanWaypointIndex, "  Curr Pose: ", curr_pose, "  Goal pose: " , self.goal)
         self.advance_to_next_goal()
+        print("Next: ", self.currentPlanWaypointIndex, "  Curr Pose: ", curr_pose, "  Goal pose: " , self.goal)
         # self.U.zero_()
-
-    print("Curr Pose: ", curr_pose, "  Goal pose: " , self.goal)
 
     #####################
     self.visualize(poses)
@@ -672,8 +674,9 @@ if __name__ == '__main__':
   # So try different combanition of T, K with a product of ~16000
   T = 30 #20
   K = 800 #800
-  sigma = [0.8, 0.3]#[0.1, 0.1] # These values will need to be tuned
-
+  sigma = [.8, 0.3]#[0.1, 0.1] # These values will need to be tuned
+  ##.8, .3
+  # 1, .16
   _lambda = .8 # 0.1 #1e-4 # 1.0
 
   rospy.init_node("mppi_control", anonymous=True) # Initialize the node
