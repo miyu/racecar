@@ -12,6 +12,37 @@ from InternalMotionModel import InternalKinematicMotionModel
 import math
 
 from plan import plan
+from ROI import *
+
+"""
+-  T = 40
+-  K = 100
+-  sigma = [0.1, 0.1] # These values will need to be tuned
+-  _lambda = 1 # 0.1 #1e-4 # 1.0
+- note: lambda can't be super small!
+"""
+
+
+"""
+Note from miyu:
+With T=20, K=8000, sigma=[0.4, 0.1], lambda = 1E-4, sigma_data=[[0.4,0.0],[0.0, 0.1]]
+Velocity changes but not theta
+"""
+
+# Setting T = 20, K = 800 will have a frequnecy of 10 Hz
+# So try different combanition of T, K with a product of ~16000
+T = 20 #20
+K = 1000 #800
+#K = 8000 #800
+#sigma = [.8, 0.2]#[0.1, 0.1] # These values will need to be tuned
+sigma = [0.2, 0.1]#[0.1, 0.1] # These values will need to be tuned
+##.8, .3
+# 1, .16
+_lambda = 0.8 # 1E-4 # 0.1 #1e-4 # 1.0
+
+#sigma_data = [[self.sigma[0], 0.0], [0.0, self.sigma[1]]]
+sigma_data = [[0.2, 0.0], [0.0, 0.1]]
+
 
 IS_ON_ROBOT = True
 
@@ -60,7 +91,7 @@ def benchprint(n, *args):
     pass
 class MPPIController:
 
-  def __init__(self, T, K, sigma=0.5, _lambda=0.5):
+  def __init__(self, T, K, sigma=0.5, _lambda=0.5, roi = None):
     if IS_ON_ROBOT:
         self.SPEED_TO_ERPM_OFFSET = float(rospy.get_param("/vesc/speed_to_erpm_offset", 0.0))
         self.SPEED_TO_ERPM_GAIN   = float(rospy.get_param("/vesc/speed_to_erpm_gain", 4614.0))
@@ -81,6 +112,9 @@ class MPPIController:
     self.sigma = sigma
     self._lambda = _lambda
 
+    self.roi = roi
+    self.was_roi_tape_seen = False
+
     self.goal = None # Lets keep track of the goal pose (world frame) over time
     self.lasttime = None
     self.last_control = None
@@ -94,8 +128,6 @@ class MPPIController:
     else:
         self.model = torch.load(MODEL_FILENAME, map_location=lambda storage, loc: storage).eval() # Maps CPU storage and serialized location back to CPU storage
 
-
-    sigma_data = [[self.sigma[0], 0.0], [0.0, self.sigma[1]]]
 
     if CUDA:
         self.model.cuda() # tell torch to run the network on the GPU
@@ -131,7 +163,7 @@ class MPPIController:
     print("Model:\n",self.model)
     print("Torch Datatype:", self.dtype)
     self.U = torch.cuda.FloatTensor(CONTROL_SIZE, self.K, self.T).zero_()
-    self.Sigma = torch.cuda.FloatTensor(CONTROL_SIZE,CONTROL_SIZE).zero_()
+    # wtf? #self.Sigma = torch.cuda.FloatTensor(CONTROL_SIZE,CONTROL_SIZE).zero_()
     self.Epsilon = torch.cuda.FloatTensor(CONTROL_SIZE, self.K, self.T).zero_()
     self.Trajectory_cost = torch.cuda.FloatTensor(self.K, 1).zero_()
 
@@ -164,8 +196,9 @@ class MPPIController:
 
         ##############  FOR FINAL DEMO   plan.py
         self.currentPlanWaypointIndex = -1
-        #for i in range(1):
-        self.advance_to_next_goal()
+        desiredWaypointIndexToExecute = 1
+        for i in range(desiredWaypointIndexToExecute + 1):
+            self.advance_to_next_goal()
 
         ##################
 
@@ -211,12 +244,13 @@ class MPPIController:
 
   def advance_to_next_goal(self):
       self.currentPlanWaypointIndex += 1
+      self.roi.tape_seen = False
 
       next_segment = plan[self.currentPlanWaypointIndex]
-      next_goal_point = next_segment[1]
+      next_goal_point = next_segment[0]
       gx = next_goal_point[0]
       gy = next_goal_point[1]
-      gt = next_segment[2]
+      gt = next_segment[1]
       print("self.plan[current], ", next_segment)
 
       # delta_x = next_segment[1][0] - next_segment[0][0]
@@ -325,8 +359,10 @@ class MPPIController:
     pose[:, 2] = wrap_pi_pi_tensor(pose[:, 2])
 
     tsqrt = time.time()
-    #self.pose_cost.zero_()
-    self.pose_cost = (torch.sum(torch.pow(pose, 2), dim=1))#.add(torch.pow(pose[:,2].div(3), 2))
+    # self.pose_cost = (torch.sum(torch.pow(pose, 2), dim=1))
+    self.pose_cost.zero_()
+    self.pose_cost.add_(torch.sum(torch.pow(pose[:,:2], 2), dim=1))
+    self.pose_cost.add_(torch.pow(pose[:,2], 2).mul(0.3))
     self.pose_cost.sqrt_()
 
     pose.add_(goal)
@@ -390,6 +426,7 @@ class MPPIController:
     self.noisyU.add_(self.Epsilon)
     # noisyU shape: (CONTROL_SIZE, K, T)
 
+    # book1: get NN input to be repeated pose dots, 0 control, dt
     self.neural_net_input_torch.zero_()
     self.neural_net_input_torch.add_(self.neural_net_input.repeat(self.K, 1))
     # neural_net_input_torch shape: (K, 8)
@@ -442,16 +479,19 @@ class MPPIController:
         # x_t shape: (K, 3)
         # dprint("@t:", t, x_t)
         if CUDA:
+            # second is particle, all u's same for particles at t
             u_tminus1 = self.U[:,0,t-1].view(1, CONTROL_SIZE)
         else:
             u_tminus1 = self.U[:,0,t-1].contiguous().view(1, CONTROL_SIZE)
         ti_preint = time.time()
 
         # u_tminus1 shape: (1, CONTROL_SIZE)
+        # pre_intermediate is u_t-1^T * SigmaInv
         pre_intermediate = torch.mm(u_tminus1, self.SigmaInv)
         # self.Sigma shape: (CONTROL_SIZE, CONTROL_SIZE)
         # intermediate shape: (1, CONTROL_SIZE)
 
+        # intermediate is lambda * u_t-1^T * SigmaInv * Epsilon_t-1^k
         self.intermediate = torch.mm(pre_intermediate, self.Epsilon[:,:,t-1])
         self.intermediate.mul_(self._lambda)
         # self.Epsilon[:,:,t-1] shape: (CONTROL_SIZE, K)
@@ -471,6 +511,12 @@ class MPPIController:
         #self.Trajectory_cost += current_cost + intermediate
         self.Trajectory_cost.add_(current_cost)
         self.Trajectory_cost.add_(self.intermediate)
+
+        # self.T
+        if t + 1 == self.T:
+            for dasdf in range(50):
+                self.Trajectory_cost.add_(current_cost)
+
         # current_cost shape: (K)
         # intermediate shape: (1, K)
         # self.Trajectory_cost shape: (1, K)
@@ -491,27 +537,49 @@ class MPPIController:
     #print('For loop: ', titered -tinit)
 
     beta = torch.min(self.Trajectory_cost)
+    # print("BETA: ", beta)
+    # print("Trajs: ", self.Trajectory_cost[:, 0:10])
     #print('Beta: ', beta)
     #self.trajectoryMinusMin.zero_()
-    trajectoryMinusMin = (self.Trajectory_cost.sub(beta))
-    trajectoryMinusMin.mul_((-1.0 / self._lambda))
+    trajectoryMinusMin = (self.Trajectory_cost.sub(beta)) # how much bigger your path was from best
+    trajectoryMinusMin.mul_((-1.0 / self._lambda)) # big negative numbers
+    # print("TrajsMM: ", trajectoryMinusMin[:, 0:10])
     # trajectoryMinusMin shape: (1, K)
 
+    # self.omega is exp(-1/lam (s(E^k) - Beta))
     self.omega.zero_()
-    self.omega.add_(torch.exp(trajectoryMinusMin))
-    n = torch.sum(self.omega)
-    self.omega.mul_(1.0 / n)
+    self.omega.add_(torch.exp(trajectoryMinusMin)) # if lambda bigger, less variation between omegas (uniformity)
+    # print("OMEGA_Premul: ", self.omega[:, 0:10])
+
+    # omegas should be really small numbers.
+    n = torch.sum(self.omega) # just a constant
+    self.omega.mul_(1.0 / n) # omega(E^k), # omega -
     # omega shape: (1, K)
+    # print("OMEGA: ", self.omega[:, 0:10])
+    # print("OMEGA_SUM: ", torch.sum(self.omega))
+    # print("EPSILON: ", self.Epsilon[:,0:10,:])
 
+    for t in range(0, self.T):
+        # print("handling t", t)
+        # print(self.Epsilon[:, :, t].size(), "VS", torch.transpose(self.omega, 0, 1).size())
+        self.U[:, 0, t] += torch.mm(self.Epsilon[:, :, t], torch.transpose(self.omega, 0, 1))
 
+        # for k in range(0, self.K):
+        #     self.U[:, 0, t] += self.omega[:, k] * self.Epsilon[:, k, t]
+
+    for k in range(0, self.K):
+        # print(k)
+        self.U[:, k, :] = self.U[:, 0, :]
+
+    """
     #self.omega_expand.zero_()
     omega_expand = (self.omega.expand(CONTROL_SIZE, -1).unsqueeze(2).expand(-1, -1, self.T)) # Check this!
     #self.pre_delta_control.zero_()
     pre_delta_control = (torch.sum(omega_expand.mul(self.Epsilon), dim=1)) # (CONTROL_SIZE, T)
-
     #delta_control.zero_()
     delta_control = (pre_delta_control.unsqueeze(1).expand(-1, self.K, -1))
     self.U.add_(delta_control)
+    """
 
     # for t in range(self.T):
     #     # omega shape: (CONTROL_SIZE, K)
@@ -527,7 +595,7 @@ class MPPIController:
     tuupdated = time.time() # 7ms
 
     #controls = self.noisyU[:, :, 0]# * self.Trajectory_cost
-    controls = self.U[:,:,0]
+    controls = self.noisyU[:,:,0]
     # noisyU shape: (CONTROL_SIZE, K, T)
     # noisyU[:, :, 0]
     # self.Trajectory_cost shape: (1, self.K)
@@ -601,24 +669,41 @@ class MPPIController:
                          np.cos(theta), 0.0, 0.0, dt])
 
     run_ctrl, poses = self.mppi(curr_pose)#, nn_input)
-    #run_ctrl = run_ctrl.view(CONTROL_SIZE)
 
-    self.U[:,:,0:self.T-1] = self.U[:,:,1:self.T]
-    self.U[:,:,self.T-1] = 0
+    #run_ctrl = run_ctrl.view(CONTROL_SIZE)
 
     self.U[:,:,0:self.T-1] = self.U[:,:,1:self.T]
     self.U[:,:,self.T-1] = 0.0
 
-    self.send_controls( run_ctrl[0], run_ctrl[1] )
+    self.U[:,:,0:self.T-1] = self.U[:,:,1:self.T]
+    self.U[:,:,self.T-1] = 0.0
+
+    consider_roi = plan[self.currentPlanWaypointIndex][2]
+    should_advance = False
+    if not consider_roi:
+        self.send_controls( run_ctrl[0], run_ctrl[1] )
+        print("We're using MPPI", self.currentPlanWaypointIndex, self.roi.tape_seen)
+    else:
+        roi_tape_seen = self.roi.tape_seen
+        if roi_tape_seen:
+            control = self.roi.PID.calc_control(self.roi.error)
+            self.roi.PID.drive(control)
+            print("We're using ROI", self.currentPlanWaypointIndex, self.roi.tape_seen)
+            if self.roi.tape_at_bottom:
+                should_advance = True
+        else:
+            self.send_controls( run_ctrl[0], run_ctrl[1] )
+            print("We're using MPPI", self.currentPlanWaypointIndex, self.roi.tape_seen)
+
 
     ##########################   FOR final project
     diff_x = self.goal[0] - curr_pose[0]
     diff_y = self.goal[1] - curr_pose[1]
     diff =(diff_x)**2 + (diff_y**2)
     diff = math.sqrt(diff)
-    tol = .4
+    tol = 0.2 if consider_roi else 0.7
 
-    if (diff < tol ) and self.currentPlanWaypointIndex < len(plan):
+    if (should_advance or diff < tol) and self.currentPlanWaypointIndex < len(plan)-1:
         print("Reached: ", self.currentPlanWaypointIndex, "  Curr Pose: ", curr_pose, "  Goal pose: " , self.goal)
         self.advance_to_next_goal()
         print("Next: ", self.currentPlanWaypointIndex, "  Curr Pose: ", curr_pose, "  Goal pose: " , self.goal)
@@ -669,16 +754,17 @@ if __name__ == '__main__':
     print('CUDA is available')
   else:
     print('CUDA is NOT available')
-
-  # Setting T = 20, K = 800 will have a frequnecy of 10 Hz
-  # So try different combanition of T, K with a product of ~16000
-  T = 30 #20
-  K = 800 #800
-  sigma = [.8, 0.3]#[0.1, 0.1] # These values will need to be tuned
-  ##.8, .3
-  # 1, .16
-  _lambda = .8 # 0.1 #1e-4 # 1.0
-
+  #rospy.init_node('apply_filter', anonymous=True)
   rospy.init_node("mppi_control", anonymous=True) # Initialize the node
-  mp = MPPIController(T, K, sigma, _lambda)
+
+  # Populate params with values passed by launch file
+  sub_topic = rospy.get_param('~sub_topic')
+  pub_topic = rospy.get_param('~pub_topic')
+
+  # Create a ROI object and pass it the loaded parameters
+  roi = ROI(sub_topic, pub_topic)
+
+  mp = MPPIController(T, K, sigma, _lambda, roi)
+
+
   rospy.spin()

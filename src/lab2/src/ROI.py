@@ -26,7 +26,7 @@ class ROI:
 
         self.error = 0.0
         self.PID = PID()
-
+        self.tape_seen = False
 
 
     """
@@ -117,6 +117,7 @@ class ROI:
         if M["m00"] == 0:
             print("Not on top of tape")
             self.error = 0.0
+            self.tape_seen = False
         else:
             cX = int(M["m10"] / M["m00"])
             cY = int(M["m01"] / M["m00"])
@@ -125,10 +126,12 @@ class ROI:
             self.error = float(width/2.0 - float(cX))
             print('Cx: ', float(cX))
             print('Center:', width/2.0)
+            self.tape_seen = True
 
         # negative error, turn right... hopefully
-        control = self.PID.calc_control(self.error)
-        self.PID.drive(control)
+        # control = self.PID.calc_control(self.error)
+        # self.last_control = control
+        # self.PID.drive(control)
 
         cv2.line(img, (0,topLineHeight), (width,topLineHeight), color = (0, 255, 0))
         cv2.line(img, (0,bottomLineHeight), (width, bottomLineHeight), color = (0, 255, 0))
