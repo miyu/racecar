@@ -9,7 +9,7 @@ from ackermann_msgs.msg import AckermannDriveStamped
 K_p = 0.07
 K_i = -0.0
 K_d = 0.03
-SPEED = 0.2
+SPEED = 0.4
 STEERING_FACTOR = 0.03
 PUB_TOPIC = '/vesc/high_level/ackermann_cmd_mux/input/nav_0'
 PUB_RATE = 20

@@ -31,7 +31,7 @@ Velocity changes but not theta
 
 # Setting T = 20, K = 800 will have a frequnecy of 10 Hz
 # So try different combanition of T, K with a product of ~16000
-T = 20 #20
+T = 30 #20
 K = 1000 #800
 #K = 8000 #800
 #sigma = [.8, 0.2]#[0.1, 0.1] # These values will need to be tuned
@@ -45,6 +45,9 @@ sigma_data = [[0.2, 0.0], [0.0, 0.1]]
 
 
 IS_ON_ROBOT = True
+
+
+theta_weight = .3
 
 if IS_ON_ROBOT:
     import rospy
@@ -183,6 +186,7 @@ class MPPIController:
         self.ctrl_pub = rospy.Publisher(rospy.get_param("~ctrl_topic", "/vesc/high_level/ackermann_cmd_mux/input/nav_0"),
                 AckermannDriveStamped, queue_size=2)
         self.path_pub = rospy.Publisher("/mppi/paths", Path, queue_size = self.num_viz_paths)
+        self.plan_pub = rospy.Publisher("/mppi/plan_path", Path, queue_size = self.num_viz_paths)
 
         # Use the 'static_map' service (launched by MapServer.launch) to get the map
         map_service_name = rospy.get_param("~static_map", "static_map")
@@ -196,7 +200,7 @@ class MPPIController:
 
         ##############  FOR FINAL DEMO   plan.py
         self.currentPlanWaypointIndex = -1
-        desiredWaypointIndexToExecute = 1
+        desiredWaypointIndexToExecute = 8
         for i in range(desiredWaypointIndexToExecute + 1):
             self.advance_to_next_goal()
 
@@ -251,6 +255,7 @@ class MPPIController:
       gx = next_goal_point[0]
       gy = next_goal_point[1]
       gt = next_segment[1]
+      theta_weight = next_segment[3]
       print("self.plan[current], ", next_segment)
 
       # delta_x = next_segment[1][0] - next_segment[0][0]
@@ -362,7 +367,7 @@ class MPPIController:
     # self.pose_cost = (torch.sum(torch.pow(pose, 2), dim=1))
     self.pose_cost.zero_()
     self.pose_cost.add_(torch.sum(torch.pow(pose[:,:2], 2), dim=1))
-    self.pose_cost.add_(torch.pow(pose[:,2], 2).mul(0.3))
+    self.pose_cost.add_(torch.pow(pose[:,2], 2).mul(theta_weight))
     self.pose_cost.sqrt_()
 
     pose.add_(goal)
@@ -682,18 +687,18 @@ class MPPIController:
     should_advance = False
     if not consider_roi:
         self.send_controls( run_ctrl[0], run_ctrl[1] )
-        print("We're using MPPI", self.currentPlanWaypointIndex, self.roi.tape_seen)
+        print("We're using MPPI", self.currentPlanWaypointIndex, self.roi.tape_seen, theta_weight)
     else:
         roi_tape_seen = self.roi.tape_seen
         if roi_tape_seen:
             control = self.roi.PID.calc_control(self.roi.error)
             self.roi.PID.drive(control)
-            print("We're using ROI", self.currentPlanWaypointIndex, self.roi.tape_seen)
+            print("We're using ROI", self.currentPlanWaypointIndex, self.roi.tape_seen, theta_weight)
             if self.roi.tape_at_bottom:
                 should_advance = True
         else:
             self.send_controls( run_ctrl[0], run_ctrl[1] )
-            print("We're using MPPI", self.currentPlanWaypointIndex, self.roi.tape_seen)
+            print("We're using MPPI", self.currentPlanWaypointIndex, self.roi.tape_seen, theta_weight)
 
 
     ##########################   FOR final project
@@ -711,6 +716,7 @@ class MPPIController:
 
     #####################
     self.visualize(poses)
+    self.visualizePlan()
 
   def send_controls(self, speed, steer):
     #print("Speed:", speed, "Steering:", steer)
@@ -734,6 +740,27 @@ class MPPIController:
           print("trajectory", i, ": ", particle_trajectory)
         pa.poses = map(Utils.particle_to_posestamped, particle_trajectory, [frame_id]*self.T)
         self.path_pub.publish(pa)
+
+  def visualizePlan(self):
+    if self.plan_pub.get_num_connections() > 0:
+      frame_id = 'map'
+      pa = Path()
+      pa.header = Utils.make_header(frame_id)
+      pa.poses = []
+      for i in range(self.currentPlanWaypointIndex,len(plan)):
+          next_segment = plan[i]
+          next_goal_point = next_segment[0]
+          gx = next_goal_point[0]
+          gy = next_goal_point[1]
+          gt = next_segment[1]
+
+          goalPixelSpace = self.dtype([[gx, gy, gt]])
+          Utils.map_to_world(goalPixelSpace, self.map_info)
+
+          thegoal = [goalPixelSpace[0][0], goalPixelSpace[0][1], goalPixelSpace[0][2]]
+          pa.poses.append(Utils.particle_to_posestamped(thegoal, frame_id))
+
+      self.plan_pub.publish(pa)
 
 def test_MPPI(mp, N, goal=np.array([0.,0.,0.])):
   init_input = np.array([0.,0.,0.,0.,1.,0.,0.,0.])
