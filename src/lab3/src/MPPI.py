@@ -9,6 +9,9 @@ import torch
 import torch.utils.data
 from torch.autograd import Variable
 from InternalMotionModel import InternalKinematicMotionModel
+import math
+
+from plan import plan
 
 IS_ON_ROBOT = True
 
@@ -158,6 +161,14 @@ class MPPIController:
         self.map_info = map_msg.info # Save info about map for later use
         print("Map Information:\n",self.map_info)
 
+
+        ##############  FOR FINAL DEMO   plan.py
+        self.currentPlanWaypointIndex = 0
+        for i in range(50):
+            self.advance_to_next_goal()
+
+        ##################
+
         # Create numpy array representing map for later use
         self.map_height = map_msg.info.height
         self.map_width = map_msg.info.width
@@ -173,28 +184,19 @@ class MPPIController:
         bufferSize = 10 # Tune this
         for i in range(0, bufferSize + 1): # Create buffer between car and walls
             print('i: ', i)
-	    delta = i
+            delta = i
         #    plus1_indices = np.minimum(indices[:, 1] + delta, self.permissible_region.shape[1] - 1)
             plus0_indices = np.minimum(indices[:, 0] + delta, self.permissible_region.shape[0] - 1)
         #    minus1_indices = np.maximum(indices[:, 1] - delta, 0)
             minus0_indices = np.maximum(indices[:, 0] - delta, 0)
 
-        #    self.permissible_region[plus0_indices, indices[:, 1]] = 1 # Increases x, keeps y
-        #    self.permissible_region[minus0_indices, indices[:, 1]] = 1 # Decreases x, keeps y
-        #    self.permissible_region[indices[:, 0], plus1_indices] = 1 # Increases y, keeps x
-        #    self.permissible_region[indices[:, 0], minus1_indices] = 1 # Decreases y, keeps x
-
-        #    self.permissible_region[minus0_indices, minus1_indices] = 1
-        #    self.permissible_region[plus0_indices, minus1_indices] = 1
-        #    self.permissible_region[minus0_indices, plus1_indices] = 1
-        #    self.permissible_region[plus0_indices, plus1_indices] = 1
-	    for j in range(0, bufferSize+1):
-	        minus1_indices = np.maximum(indices[:,1]-j, 0)
-	        plus1_indices = np.minimum(indices[:,1] - j, self.permissible_region.shape[1] -1)
-		self.permissible_region[minus0_indices, minus1_indices] = 1
-		self.permissible_region[plus0_indices, minus1_indices] = 1
-		self.permissible_region[minus0_indices, plus1_indices] = 1
-		self.permissible_region[plus0_indices, minus1_indices] =  1
+            for j in range(0, bufferSize+1):
+                minus1_indices = np.maximum(indices[:,1]-j, 0)
+                plus1_indices = np.minimum(indices[:,1] - j, self.permissible_region.shape[1] -1)
+                self.permissible_region[minus0_indices, minus1_indices] = 1
+                self.permissible_region[plus0_indices, minus1_indices] = 1
+                self.permissible_region[minus0_indices, plus1_indices] = 1
+                self.permissible_region[plus0_indices, minus1_indices] =  1
         print('Sum in permissible region after: ', np.sum(self.permissible_region))
 
         self.permissible_region_torch = torch.from_numpy(
@@ -206,6 +208,30 @@ class MPPIController:
                 PoseStamped, self.clicked_goal_cb, queue_size=1)
         self.pose_sub  = rospy.Subscriber("/pf/ta/viz/inferred_pose",
                 PoseStamped, self.mppi_cb, queue_size=1)
+
+  def advance_to_next_goal(self):
+      self.currentPlanWaypointIndex += 1
+
+      next_segment = plan[self.currentPlanWaypointIndex]
+      next_goal_point = next_segment[1]
+      gx = next_goal_point[0]
+      gy = next_goal_point[1]
+      gt = next_segment[2]
+      print("self.plan[current], ", next_segment)
+
+      # delta_x = next_segment[1][0] - next_segment[0][0]
+      # delta_y = next_segment[1][1] - next_segment[0][1]
+      #
+      # theta_radians = math.atan2(delta_y, delta_x)
+      # theta_radians = wrap_pi_pi_number(theta_radians)
+      # gt = 0#theta_radians
+
+      goalPixelSpace = self.dtype([[gx, gy, gt]])
+      Utils.map_to_world(goalPixelSpace, self.map_info)
+
+      self.goal = self.dtype([goalPixelSpace[0][0], goalPixelSpace[0][1], goalPixelSpace[0][2]])
+      print("Next goal set to: ", self.goal, "which is", gx, ", ", gy)
+
 
   def out_of_bounds(self, pose):
     grid_poses = pose.clone().view(1,3)
@@ -278,6 +304,10 @@ class MPPIController:
     print("Current Pose: ", self.last_pose)
     print("SETTING Goal: ", self.goal)
 
+    cp = self.dtype([[self.goal[0], self.goal[1], self.goal[2]]])
+    Utils.world_to_map(cp, self.map_info)
+    print("In map space is: ", cp)
+
   def running_cost(self, pose, goal, deltas, noise=None):
     # TODO
     # This cost function drives the behavior of the car. You want to specify a
@@ -318,7 +348,7 @@ class MPPIController:
 
     tfinal = time.time()
 
-    self.pose_cost.add_(self.bounds_check)
+    # self.pose_cost.add_(self.bounds_check)
 
     benchprint(0, "calc", (tprewrap - t0), " ", (tsqrt - tprewrap), " ", (tprepermissible - tsqrt), " ", tfinal - tprepermissible)
     return self.pose_cost
@@ -579,7 +609,20 @@ class MPPIController:
 
     self.send_controls( run_ctrl[0], run_ctrl[1] )
 
+    ##########################   FOR final project
+    diff_x = self.goal[0] - curr_pose[0]
+    diff_y = self.goal[1] - curr_pose[1]
+    diff =(diff_x)**2 + (diff_y**2)
+    diff = math.sqrt(diff)
+    tol = .4
 
+    if (diff < tol ):
+        self.advance_to_next_goal()
+        # self.U.zero_()
+
+    print("Curr Pose: ", curr_pose, "  Goal pose: " , self.goal)
+
+    #####################
     self.visualize(poses)
 
   def send_controls(self, speed, steer):
