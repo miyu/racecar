@@ -5,9 +5,33 @@ import Dubins
 import KinematicModel as model
 from matplotlib import pyplot as plt
 import cv2
+import heapq
 import Utils
 import time
 import random
+
+class PriorityQueue:
+  """
+    Implements a priority queue data structure. Each inserted item
+    has a priority associated with it and the client is usually interested
+    in quick retrieval of the lowest-priority item in the queue. This
+    data structure allows O(1) access to the lowest-priority item.
+  """
+  def  __init__(self):
+    self.heap = []
+    self.count = 0
+
+  def push(self, item, priority):
+    entry = (priority, self.count, item)
+    heapq.heappush(self.heap, entry)
+    self.count += 1
+
+  def pop(self):
+    (_, _, item) = heapq.heappop(self.heap)
+    return item
+
+  def isEmpty(self):
+    return len(self.heap) == 0
 
 class HaltonPlanner(object):
 
@@ -42,6 +66,30 @@ class HaltonPlanner(object):
     #   of node ids, get_solution() will compute the actual path in SE(2) based off of
     #   the node ids that you have found.
     #-------------------------------------------------------------
+    
+    queue = PriorityQueue()
+    statesSeen = set([])
+    startState = self.sid
+    goalState = self.tid
+    reachedGoal = (startState == goalState)
+    queue.push((startState, 0, []), 0)
+    while not reachedGoal:
+      currentState, costRequired, statesSoFar = queue.pop()
+      reachedGoal = (currentState == goalState)
+      statesSeen.add(currentState)
+      if currentState != startState:
+        statesSoFar.append(currentState)
+      if reachedGoal:
+        return statesSoFar
+      successors = self.planningEnv.get_successors(currentState)
+      for successor in successors:
+        if (successor not in statesSeen) or (successor == goalState):
+          duplicate = [] + statesSoFar
+          costSoFar = self.planningEnv.get_distance(startState, currentState) # We should double check if this is the right cost function
+          totalCost = costRequired + costSoFar
+          totalPriority = totalCost + self.planningEnv.get_heuristic(currentState, successor) # Add cost to heuristic
+          queue.push((successor, totalCost, duplicate), totalPriority)
+          statesSeen.add(successor)
     return []
 
   # Try to improve the current plan by repeatedly checking if there is a shorter path between random pairs of points in the path

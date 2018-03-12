@@ -93,6 +93,9 @@ def benchprint(n, *args):
     #print(args)
     pass
 
+# whether to dump ofcccupancy gird
+g_onco = True
+
 class MPPIController:
 
   def __init__(self, T, K, sigma=0.5, _lambda=0.5, roi = None):
@@ -236,44 +239,53 @@ class MPPIController:
         #     else:
         #         badpoints = np.append(badpoints, np.array([[int(row[0]), self.map_height - int(row[1])]], dtype=np.int32), axis=0)
         #
-        # print('Badpoints: ', badpoints)
-        #
-        # redBufferSpace = 8
-        # for i in range(0, redBufferSpace+1):
-        #     print('i: ', i)
-        # #    plus1_indices = np.minimum(indices[:, 1] + delta, self.permissible_region.shape[1] - 1)
-        #     plus0_indices = np.minimum(badpoints[:, 0] + i, self.permissible_region.shape[0] - 1)
-        # #    minus1_indices = np.maximum(indices[:, 1] - delta, 0)
-        #     minus0_indices = np.maximum(badpoints[:, 0] - i, 0)
-        #
-        #     for j in range(0, redBufferSpace+1):
-        #         minus1_indices = np.maximum(badpoints[:,1]+j, 0)
-        #         plus1_indices = np.minimum(badpoints[:,1] - j, self.permissible_region.shape[1] -1)
-        #         self.permissible_region[minus0_indices, plus1_indices] = 1
-        #         self.permissible_region[plus0_indices, minus1_indices] = 1
-        #         self.permissible_region[minus0_indices, plus1_indices] = 1
-        #         self.permissible_region[plus0_indices, minus1_indices] =  1
+
+        badpoints = None
+        with open(CSV_FILE, 'r') as csvfile:
+            reader = csv.reader(csvfile, delimiter=',')
+            firstLine = True
+            for row in reader:
+                if firstLine:
+                    firstLine = False
+                    continue
+                if badpoints is None:
+                    print('C')
+                    badpoints = np.array([[int(row[0]), self.map_height - int(row[1])]], dtype=np.int32)
+                else:
+                    badpoints = np.append(badpoints, np.array([[int(row[0]),  int(row[1])]], dtype=np.int32), axis=0)
+
+        print('Badpoints: ', badpoints)
+
+        redBufferSpace = 10
+        for i in range(0, redBufferSpace+1):
+            plus0_indices = np.minimum(badpoints[:, 0] + i, self.permissible_region.shape[0] - 1)
+            minus0_indices = np.maximum(badpoints[:, 0] - i, 0)
+
+            for j in range(0, redBufferSpace+1):
+                minus1_indices = np.maximum(badpoints[:,1]+j, 0)
+                plus1_indices = np.minimum(badpoints[:,1] - j, self.permissible_region.shape[1] -1)
+                self.permissible_region[minus0_indices, plus1_indices] = 1
+                self.permissible_region[plus0_indices, minus1_indices] = 1
+                self.permissible_region[plus0_indices, plus1_indices] = 1
+                self.permissible_region[minus0_indices, minus1_indices] =  1
 
 
         print('Sum in permissible region before: ', np.sum(self.permissible_region))
 
         indices = np.argwhere(array_255 == 100)
-        bufferSize = 10 # Tune this
+        bufferSize = 16 # Tune this
         for i in range(0, bufferSize + 1): # Create buffer between car and walls
             print('i: ', i)
-            delta = i
-        #    plus1_indices = np.minimum(indices[:, 1] + delta, self.permissible_region.shape[1] - 1)
-            plus0_indices = np.minimum(indices[:, 0] + delta, self.permissible_region.shape[0] - 1)
-        #    minus1_indices = np.maximum(indices[:, 1] - delta, 0)
-            minus0_indices = np.maximum(indices[:, 0] - delta, 0)
+            plus0_indices = np.minimum(indices[:, 0] + i, self.permissible_region.shape[0] - 1)
+            minus0_indices = np.maximum(indices[:, 0] - i, 0)
 
             for j in range(0, bufferSize+1):
                 minus1_indices = np.maximum(indices[:,1]-j, 0)
                 plus1_indices = np.minimum(indices[:,1] - j, self.permissible_region.shape[1] -1)
                 self.permissible_region[minus0_indices, plus1_indices] = 1
                 self.permissible_region[plus0_indices, minus1_indices] = 1
-                self.permissible_region[minus0_indices, plus1_indices] = 1
-                self.permissible_region[plus0_indices, minus1_indices] =  1
+                self.permissible_region[plus0_indices, plus1_indices] = 1
+                self.permissible_region[minus0_indices, minus1_indices] =  1
         print('Sum in permissible region after: ', np.sum(self.permissible_region))
 
         self.permissible_region_torch = torch.from_numpy(
@@ -285,6 +297,19 @@ class MPPIController:
                 PoseStamped, self.clicked_goal_cb, queue_size=1)
         self.pose_sub  = rospy.Subscriber("/pf/ta/viz/inferred_pose",
                 PoseStamped, self.mppi_cb, queue_size=1)
+
+	if g_onco:
+		g_onco = False
+		asdf =  ""
+		for i in range(0, self.map_weight):
+			for j in range(0, self.map_height):
+				if self.permissible_region == 1:
+					asdf+="#"
+				else:
+					asdf+=" "
+			asdf+="\n"
+		with open("occ.txt", "w") as fd:
+			fd.write(asdf)
 
   def advance_to_next_goal(self):
       self.currentPlanWaypointIndex += 1
@@ -415,8 +440,6 @@ class MPPIController:
     self.pose_cost.zero_()
     self.pose_cost.add_(torch.sum(torch.pow(pose[:,:2], 2), dim=1))
     self.pose_cost.add_(torch.pow(pose[:,2], 2).mul(self.theta_weight))
-    self.pose_cost.sqrt_()
-
     pose.add_(goal)
     #print('Pose Cost: ', torch.max(pose_cost))
     # Pose Cost Shape: (K,)
@@ -487,15 +510,17 @@ class MPPIController:
     pre_x_tminus1 = self.dtype(init_pose)
     delta_pose = self.goal - pre_x_tminus1
     self.initial_distance = torch.sum(torch.pow(delta_pose[:2], 2))
-    print('Initial Distance: ', self.initial_distance)
+    ##print('Initial Distance: ', self.initial_distance)
+    bounds_check_threshold = 0.07 # If distance is less than this, ignore bounds check (Tune this)
     if self.initial_distance < 0.07:
         return self.dtype([0.0, 0.0]), None # If car is close enough, stop
     if self.initial_distance > 0.5:
-        self.theta_weight = 0.1
+        #self.theta_weight = 0.1
         self.bounds_check_weight = 1.0
     else:
-        self.theta_weight = 1.0
-        self.bounds_check_weight = 0.0
+        #self.theta_weight = 1.0
+        if self.initial_distance < bounds_check_threshold:
+            self.bounds_check_weight = 0.0
 
     self.x_tminus1.zero_()
     self.x_tminus1.add_(pre_x_tminus1.repeat(self.K, 1))
@@ -746,7 +771,7 @@ class MPPIController:
     should_advance = False
     if not consider_roi:
         self.send_controls( run_ctrl[0], run_ctrl[1] )
-        #print("We're using MPPI", self.currentPlanWaypointIndex, self.roi.tape_seen, self.theta_weight)
+        print("We're using MPPI", self.currentPlanWaypointIndex, self.roi.tape_seen, self.theta_weight)
     else:
         roi_tape_seen = self.roi.tape_seen
         if roi_tape_seen:
@@ -757,7 +782,7 @@ class MPPIController:
                 should_advance = True
         else:
             self.send_controls( run_ctrl[0], run_ctrl[1] )
-            #print("We're using MPPI", self.currentPlanWaypointIndex, self.roi.tape_seen, self.theta_weight)
+            print("We're using MPPI", self.currentPlanWaypointIndex, self.roi.tape_seen, self.theta_weight)
 
 
     ##########################   FOR final project
@@ -765,7 +790,7 @@ class MPPIController:
     diff_y = self.goal[1] - curr_pose[1]
     diff =(diff_x)**2 + (diff_y**2)
     diff = math.sqrt(diff)
-    tol = 0.2 if consider_roi else 0.7
+    tol = 0.1 if consider_roi else 0.7
 
     if (should_advance or diff < tol) and self.currentPlanWaypointIndex < len(plan)-1:
         print("Reached: ", self.currentPlanWaypointIndex, "  Curr Pose: ", curr_pose, "  Goal pose: " , self.goal)
@@ -780,21 +805,23 @@ class MPPIController:
     self.visualizePlan()
 
   def send_controls(self, speed, steer):
-    if 0 < speed < 1e-1:
+    thresholdSpeed = 1e-1 # Tune this
+    if speed > thresholdSpeed: # If speed is greater than threshold, bump it up to 0.2 at minimum. Otherwise, keep the small value.
         if self.initial_distance < 0.5:
             speed = max(speed, 0.2)
         else:
             speed = max(speed, 0.3)
-    elif 0 > speed > -1e-1:
+    elif speed < -thresholdSpeed: # If negative speed is greater than threshold, bump it up to -0.2 at minimum. Otherwise, keep the small value.
         if self.initial_distance < 0.5:
             speed = min(speed, -0.2)
         else:
             speed = min(speed, -0.3)
-    if steer > 1e-2:
+    thresholdSteer = 1e-2 # Tune this
+    if steer > thresholdSteer: # If steer is greater than threshold, bump it up to 0.2 at minimum. Otherwise, keep the small value.
         steer = max(steer, 0.2)
-    elif 0 > steer > -1e-2:
+    elif steer < -thresholdSteer: # If negative steer is greater than threshold, bump it up to -0.2 at minimum. Otherwise, keep the small value.
         steer = min(steer, -0.2)
-    print("Speed:", speed, "Steering:", steer)
+    #print("Speed:", speed, "Steering:", steer)
     ctrlmsg = AckermannDriveStamped()
     ctrlmsg.header.seq = self.msgid
     ctrlmsg.drive.steering_angle = steer
