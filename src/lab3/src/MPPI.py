@@ -218,41 +218,35 @@ class MPPIController:
                                                   # With values 0: not permissible, 1: permissible
         self.permissible_region = np.negative(self.permissible_region) # 0 is permissible, 1 is not
 
-        # csvfile = open(CSV_FILE, 'r')
-        # # reader = csv.reader(csvfile, delimiter=',')
-        # # len_csv = sum(1 for row in reader)
-        # # badpoints = np.zeros((len_csv - 1, 2), dtype=np.int32)
-        # firstLine = True
-        # # index = 0
-        # reader = csv.reader(csvfile, delimiter=',')
-        # badpoints = None
-        # for row in reader:
-        #     if firstLine:
-        #         firstLine = False
-        #         continue
-        #     if badpoints is None:
-        #         print('C')
-        #         badpoints = np.array([[int(row[0]), self.map_height - int(row[1])]], dtype=np.int32)
-        #     else:
-        #         badpoints = np.append(badpoints, np.array([[int(row[0]), self.map_height - int(row[1])]], dtype=np.int32), axis=0)
-        #
-        # print('Badpoints: ', badpoints)
-        #
-        # redBufferSpace = 8
-        # for i in range(0, redBufferSpace+1):
-        #     print('i: ', i)
-        # #    plus1_indices = np.minimum(indices[:, 1] + delta, self.permissible_region.shape[1] - 1)
-        #     plus0_indices = np.minimum(badpoints[:, 0] + i, self.permissible_region.shape[0] - 1)
-        # #    minus1_indices = np.maximum(indices[:, 1] - delta, 0)
-        #     minus0_indices = np.maximum(badpoints[:, 0] - i, 0)
-        #
-        #     for j in range(0, redBufferSpace+1):
-        #         minus1_indices = np.maximum(badpoints[:,1]+j, 0)
-        #         plus1_indices = np.minimum(badpoints[:,1] - j, self.permissible_region.shape[1] -1)
-        #         self.permissible_region[minus0_indices, plus1_indices] = 1
-        #         self.permissible_region[plus0_indices, minus1_indices] = 1
-        #         self.permissible_region[minus0_indices, plus1_indices] = 1
-        #         self.permissible_region[plus0_indices, minus1_indices] =  1
+
+        badpoints = None
+        with open(CSV_FILE, 'r') as csvfile:
+            reader = csv.reader(csvfile, delimiter=',')
+            firstLine = True
+            for row in reader:
+                if firstLine:
+                    firstLine = False
+                    continue
+                if badpoints is None:
+                    print('C')
+                    badpoints = np.array([[int(row[0]), self.map_height - int(row[1])]], dtype=np.int32)
+                else:
+                    badpoints = np.append(badpoints, np.array([[int(row[0]), self.map_height - int(row[1])]], dtype=np.int32), axis=0)
+
+        print('Badpoints: ', badpoints)
+
+        redBufferSpace = 15
+        for i in range(0, redBufferSpace+1):
+            plus0_indices = np.minimum(badpoints[:, 0] + i, self.permissible_region.shape[0] - 1)
+            minus0_indices = np.maximum(badpoints[:, 0] - i, 0)
+
+            for j in range(0, redBufferSpace+1):
+                minus1_indices = np.maximum(badpoints[:,1]+j, 0)
+                plus1_indices = np.minimum(badpoints[:,1] - j, self.permissible_region.shape[1] -1)
+                self.permissible_region[minus0_indices, plus1_indices] = 1
+                self.permissible_region[plus0_indices, minus1_indices] = 1
+                self.permissible_region[plus0_indices, plus1_indices] = 1
+                self.permissible_region[minus0_indices, minus1_indices] =  1
 
 
         print('Sum in permissible region before: ', np.sum(self.permissible_region))
@@ -261,19 +255,16 @@ class MPPIController:
         bufferSize = 10 # Tune this
         for i in range(0, bufferSize + 1): # Create buffer between car and walls
             print('i: ', i)
-            delta = i
-        #    plus1_indices = np.minimum(indices[:, 1] + delta, self.permissible_region.shape[1] - 1)
-            plus0_indices = np.minimum(indices[:, 0] + delta, self.permissible_region.shape[0] - 1)
-        #    minus1_indices = np.maximum(indices[:, 1] - delta, 0)
-            minus0_indices = np.maximum(indices[:, 0] - delta, 0)
+            plus0_indices = np.minimum(indices[:, 0] + i, self.permissible_region.shape[0] - 1)
+            minus0_indices = np.maximum(indices[:, 0] - i, 0)
 
             for j in range(0, bufferSize+1):
                 minus1_indices = np.maximum(indices[:,1]-j, 0)
                 plus1_indices = np.minimum(indices[:,1] - j, self.permissible_region.shape[1] -1)
                 self.permissible_region[minus0_indices, plus1_indices] = 1
                 self.permissible_region[plus0_indices, minus1_indices] = 1
-                self.permissible_region[minus0_indices, plus1_indices] = 1
-                self.permissible_region[plus0_indices, minus1_indices] =  1
+                self.permissible_region[plus0_indices, plus1_indices] = 1
+                self.permissible_region[minus0_indices, minus1_indices] =  1
         print('Sum in permissible region after: ', np.sum(self.permissible_region))
 
         self.permissible_region_torch = torch.from_numpy(
