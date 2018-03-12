@@ -13,6 +13,7 @@ import math
 
 from plan import plan
 from ROI import *
+import csv
 
 """
 -  T = 40
@@ -28,6 +29,8 @@ Note from miyu:
 With T=20, K=8000, sigma=[0.4, 0.1], lambda = 1E-4, sigma_data=[[0.4,0.0],[0.0, 0.1]]
 Velocity changes but not theta
 """
+
+CSV_FILE = "/home/nvidia/our_catkin_ws/src/lab3/src/sieg_map/bad_waypoints.csv"
 
 # Setting T = 20, K = 800 will have a frequnecy of 10 Hz
 # So try different combanition of T, K with a product of ~16000
@@ -45,9 +48,6 @@ sigma_data = [[0.2, 0.0], [0.0, 0.1]]
 
 
 IS_ON_ROBOT = True
-
-
-theta_weight = .3
 
 if IS_ON_ROBOT:
     import rospy
@@ -92,6 +92,7 @@ def benchprint(n, *args):
     #if True:#n == 5:
     #print(args)
     pass
+
 class MPPIController:
 
   def __init__(self, T, K, sigma=0.5, _lambda=0.5, roi = None):
@@ -107,6 +108,8 @@ class MPPIController:
         self.STEERING_TO_SERVO_GAIN   = -1.2135
 
     self.CAR_LENGTH = 0.33
+    self.theta_weight = 0.1
+    self.bounds_check_weight = 1.0
 
     self.last_pose = None
     # MPPI params
@@ -153,6 +156,7 @@ class MPPIController:
     self.omega = self.dtype(1, self.K).zero_()
     self.x_tminus1 = self.dtype(self.K, 3).zero_()
     self.x_t = self.dtype(self.K, 3).zero_()
+    self.initial_distance = None
 
     self.intermediate = self.dtype(1,self.K).zero_()
 
@@ -197,7 +201,6 @@ class MPPIController:
         self.map_info = map_msg.info # Save info about map for later use
         print("Map Information:\n",self.map_info)
 
-
         ##############  FOR FINAL DEMO   plan.py
         self.currentPlanWaypointIndex = -1
         desiredWaypointIndexToExecute = 8
@@ -215,10 +218,47 @@ class MPPIController:
                                                   # With values 0: not permissible, 1: permissible
         self.permissible_region = np.negative(self.permissible_region) # 0 is permissible, 1 is not
 
+        # csvfile = open(CSV_FILE, 'r')
+        # # reader = csv.reader(csvfile, delimiter=',')
+        # # len_csv = sum(1 for row in reader)
+        # # badpoints = np.zeros((len_csv - 1, 2), dtype=np.int32)
+        # firstLine = True
+        # # index = 0
+        # reader = csv.reader(csvfile, delimiter=',')
+        # badpoints = None
+        # for row in reader:
+        #     if firstLine:
+        #         firstLine = False
+        #         continue
+        #     if badpoints is None:
+        #         print('C')
+        #         badpoints = np.array([[int(row[0]), self.map_height - int(row[1])]], dtype=np.int32)
+        #     else:
+        #         badpoints = np.append(badpoints, np.array([[int(row[0]), self.map_height - int(row[1])]], dtype=np.int32), axis=0)
+        #
+        # print('Badpoints: ', badpoints)
+        #
+        # redBufferSpace = 8
+        # for i in range(0, redBufferSpace+1):
+        #     print('i: ', i)
+        # #    plus1_indices = np.minimum(indices[:, 1] + delta, self.permissible_region.shape[1] - 1)
+        #     plus0_indices = np.minimum(badpoints[:, 0] + i, self.permissible_region.shape[0] - 1)
+        # #    minus1_indices = np.maximum(indices[:, 1] - delta, 0)
+        #     minus0_indices = np.maximum(badpoints[:, 0] - i, 0)
+        #
+        #     for j in range(0, redBufferSpace+1):
+        #         minus1_indices = np.maximum(badpoints[:,1]+j, 0)
+        #         plus1_indices = np.minimum(badpoints[:,1] - j, self.permissible_region.shape[1] -1)
+        #         self.permissible_region[minus0_indices, plus1_indices] = 1
+        #         self.permissible_region[plus0_indices, minus1_indices] = 1
+        #         self.permissible_region[minus0_indices, plus1_indices] = 1
+        #         self.permissible_region[plus0_indices, minus1_indices] =  1
+
+
         print('Sum in permissible region before: ', np.sum(self.permissible_region))
 
         indices = np.argwhere(array_255 == 100)
-        bufferSize = 8 # Tune this
+        bufferSize = 10 # Tune this
         for i in range(0, bufferSize + 1): # Create buffer between car and walls
             print('i: ', i)
             delta = i
@@ -230,7 +270,7 @@ class MPPIController:
             for j in range(0, bufferSize+1):
                 minus1_indices = np.maximum(indices[:,1]-j, 0)
                 plus1_indices = np.minimum(indices[:,1] - j, self.permissible_region.shape[1] -1)
-                self.permissible_region[minus0_indices, minus1_indices] = 1
+                self.permissible_region[minus0_indices, plus1_indices] = 1
                 self.permissible_region[plus0_indices, minus1_indices] = 1
                 self.permissible_region[minus0_indices, plus1_indices] = 1
                 self.permissible_region[plus0_indices, minus1_indices] =  1
@@ -255,7 +295,7 @@ class MPPIController:
       gx = next_goal_point[0]
       gy = next_goal_point[1]
       gt = next_segment[1]
-      theta_weight = next_segment[3]
+      self.theta_weight = next_segment[3]
       print("self.plan[current], ", next_segment)
 
       # delta_x = next_segment[1][0] - next_segment[0][0]
@@ -284,11 +324,11 @@ class MPPIController:
     if occupancyVal == 1:
     #occupancyVal = self.map_data[grid_x + grid_y * self.map_info.width)]
     # if occupancyVal == -1 or occupancyVal == 100:
-        #print('Pose is invalid!!!!')
+        print('Pose is invalid!!!!')
         return 0
     else:
         #print('Valid pose: ', pose)
-        #print('Pose is valid!!!')
+        print('Pose is valid!!!')
         return 1
 
   def out_of_bounds_poses(self, poses):
@@ -343,9 +383,16 @@ class MPPIController:
     print("Current Pose: ", self.last_pose)
     print("SETTING Goal: ", self.goal)
 
-    cp = self.dtype([[self.goal[0], self.goal[1], self.goal[2]]])
-    Utils.world_to_map(cp, self.map_info)
-    print("In map space is: ", cp)
+    # map_goal = self.dtype([[msg.pose.position.x,
+    #                       msg.pose.position.y,
+    #                       Utils.quaternion_to_angle(msg.pose.orientation)]])
+    #
+    # Utils.world_to_map(map_goal, self.map_info)
+    #map_goal.round_()
+    #print('Goal in Map Space: ', map_goal)
+
+    #self.out_of_bounds(self.goal)
+
 
   def running_cost(self, pose, goal, deltas, noise=None):
     # TODO
@@ -367,7 +414,7 @@ class MPPIController:
     # self.pose_cost = (torch.sum(torch.pow(pose, 2), dim=1))
     self.pose_cost.zero_()
     self.pose_cost.add_(torch.sum(torch.pow(pose[:,:2], 2), dim=1))
-    self.pose_cost.add_(torch.pow(pose[:,2], 2).mul(theta_weight))
+    self.pose_cost.add_(torch.pow(pose[:,2], 2).mul(self.theta_weight))
     self.pose_cost.sqrt_()
 
     pose.add_(goal)
@@ -381,7 +428,7 @@ class MPPIController:
     # 0 is permissible, -1 is not
     #self.bounds_check.zero_()
     self.bounds_check =(self.out_of_bounds_poses(pose))
-    self.bounds_check.mul_(1e4)
+    self.bounds_check.mul_(1e4 * self.bounds_check_weight)
     #bounds_check = 0.0
     #print('Bounds Cost: ', torch.max(bounds_check))
     # Bounds Check Shape: (K,)
@@ -438,6 +485,18 @@ class MPPIController:
 
     #x_tminus1 = torch.from_numpy(np.tile(init_pose, (self.K, 1)).astype('float32')).type(self.dtype)
     pre_x_tminus1 = self.dtype(init_pose)
+    delta_pose = self.goal - pre_x_tminus1
+    self.initial_distance = torch.sum(torch.pow(delta_pose[:2], 2))
+    print('Initial Distance: ', self.initial_distance)
+    if self.initial_distance < 0.07:
+        return self.dtype([0.0, 0.0]), None # If car is close enough, stop
+    if self.initial_distance > 0.5:
+        self.theta_weight = 0.1
+        self.bounds_check_weight = 1.0
+    else:
+        self.theta_weight = 1.0
+        self.bounds_check_weight = 0.0
+
     self.x_tminus1.zero_()
     self.x_tminus1.add_(pre_x_tminus1.repeat(self.K, 1))
 
@@ -687,18 +746,18 @@ class MPPIController:
     should_advance = False
     if not consider_roi:
         self.send_controls( run_ctrl[0], run_ctrl[1] )
-        print("We're using MPPI", self.currentPlanWaypointIndex, self.roi.tape_seen, theta_weight)
+        #print("We're using MPPI", self.currentPlanWaypointIndex, self.roi.tape_seen, self.theta_weight)
     else:
         roi_tape_seen = self.roi.tape_seen
         if roi_tape_seen:
             control = self.roi.PID.calc_control(self.roi.error)
             self.roi.PID.drive(control)
-            print("We're using ROI", self.currentPlanWaypointIndex, self.roi.tape_seen, theta_weight)
+            print("We're using ROI", self.currentPlanWaypointIndex, self.roi.tape_seen, self.theta_weight)
             if self.roi.tape_at_bottom:
                 should_advance = True
         else:
             self.send_controls( run_ctrl[0], run_ctrl[1] )
-            print("We're using MPPI", self.currentPlanWaypointIndex, self.roi.tape_seen, theta_weight)
+            #print("We're using MPPI", self.currentPlanWaypointIndex, self.roi.tape_seen, self.theta_weight)
 
 
     ##########################   FOR final project
@@ -715,11 +774,27 @@ class MPPIController:
         # self.U.zero_()
 
     #####################
-    self.visualize(poses)
+
+    if poses is not None:
+        self.visualize(poses)
     self.visualizePlan()
 
   def send_controls(self, speed, steer):
-    #print("Speed:", speed, "Steering:", steer)
+    if 0 < speed < 1e-1:
+        if self.initial_distance < 0.5:
+            speed = max(speed, 0.2)
+        else:
+            speed = max(speed, 0.3)
+    elif 0 > speed > -1e-1:
+        if self.initial_distance < 0.5:
+            speed = min(speed, -0.2)
+        else:
+            speed = min(speed, -0.3)
+    if steer > 1e-2:
+        steer = max(steer, 0.2)
+    elif 0 > steer > -1e-2:
+        steer = min(steer, -0.2)
+    print("Speed:", speed, "Steering:", steer)
     ctrlmsg = AckermannDriveStamped()
     ctrlmsg.header.seq = self.msgid
     ctrlmsg.drive.steering_angle = steer
