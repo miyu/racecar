@@ -780,12 +780,12 @@ class MPPIController:
     self.visualizePlan()
 
   def send_controls(self, speed, steer):
-    if 0 < speed < 1e-1:
+    if speed > 1e-1: # If speed is greater than 0.1, bump it up to 0.2 at minimum. Otherwise, keep the small value.
         if self.initial_distance < 0.5:
             speed = max(speed, 0.2)
         else:
             speed = max(speed, 0.3)
-    elif 0 > speed > -1e-1:
+    elif speed < -1e-1: # If negative speed is greater than 0.1, bump it up to 0.2 at minimum. Otherwise, keep the small value.
         if self.initial_distance < 0.5:
             speed = min(speed, -0.2)
         else:
