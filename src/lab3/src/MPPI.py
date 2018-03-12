@@ -780,19 +780,21 @@ class MPPIController:
     self.visualizePlan()
 
   def send_controls(self, speed, steer):
-    if speed > 1e-1: # If speed is greater than 0.1, bump it up to 0.2 at minimum. Otherwise, keep the small value.
+    thresholdSpeed = 1e-1 # Tune this
+    if speed > thresholdSpeed: # If speed is greater than threshold, bump it up to 0.2 at minimum. Otherwise, keep the small value.
         if self.initial_distance < 0.5:
             speed = max(speed, 0.2)
         else:
             speed = max(speed, 0.3)
-    elif speed < -1e-1: # If negative speed is greater than 0.1, bump it up to 0.2 at minimum. Otherwise, keep the small value.
+    elif speed < -thresholdSpeed: # If negative speed is greater than threshold, bump it up to -0.2 at minimum. Otherwise, keep the small value.
         if self.initial_distance < 0.5:
             speed = min(speed, -0.2)
         else:
             speed = min(speed, -0.3)
-    if steer > 1e-2:
+    thresholdSteer = 1e-2 # Tune this
+    if steer > thresholdSteer: # If steer is greater than threshold, bump it up to 0.2 at minimum. Otherwise, keep the small value.
         steer = max(steer, 0.2)
-    elif 0 > steer > -1e-2:
+    elif steer < -thresholdSteer: # If negative steer is greater than threshold, bump it up to -0.2 at minimum. Otherwise, keep the small value.
         steer = min(steer, -0.2)
     print("Speed:", speed, "Steering:", steer)
     ctrlmsg = AckermannDriveStamped()
