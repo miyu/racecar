@@ -488,6 +488,7 @@ class MPPIController:
     delta_pose = self.goal - pre_x_tminus1
     self.initial_distance = torch.sum(torch.pow(delta_pose[:2], 2))
     print('Initial Distance: ', self.initial_distance)
+    bounds_check_threshold = 0.07 # If distance is less than this, ignore bounds check (Tune this)
     if self.initial_distance < 0.07:
         return self.dtype([0.0, 0.0]), None # If car is close enough, stop
     if self.initial_distance > 0.5:
@@ -495,7 +496,8 @@ class MPPIController:
         self.bounds_check_weight = 1.0
     else:
         self.theta_weight = 1.0
-        self.bounds_check_weight = 0.0
+        if self.initial_distance < bounds_check_threshold:
+            self.bounds_check_weight = 0.0
 
     self.x_tminus1.zero_()
     self.x_tminus1.add_(pre_x_tminus1.repeat(self.K, 1))
